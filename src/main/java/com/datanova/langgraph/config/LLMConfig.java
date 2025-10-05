@@ -38,16 +38,16 @@ public class LLMConfig {
     @Value("${spring.ai.openai.api-key}")
     private String apiKey;
 
-    @Value("${spring.ai.openai.base-url:https://api.openai.com}")
+    @Value("${spring.ai.openai.base-url}")
     private String baseUrl;
 
-    @Value("${spring.ai.openai.chat.options.model:gpt-4}")
+    @Value("${spring.ai.openai.chat.options.model}")
     private String modelName;
 
-    @Value("${spring.ai.openai.chat.options.temperature:0.7}")
+    @Value("${spring.ai.openai.chat.options.temperature}")
     private Double temperature;
 
-    @Value("${spring.ai.openai.chat.options.max-tokens:2000}")
+    @Value("${spring.ai.openai.chat.options.max-tokens}")
     private Integer maxTokens;
 
     /**
