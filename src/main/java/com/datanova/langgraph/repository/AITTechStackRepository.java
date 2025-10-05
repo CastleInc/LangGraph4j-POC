@@ -2,61 +2,29 @@ package com.datanova.langgraph.repository;
 
 import com.datanova.langgraph.model.AITTechStackInfoEntity;
 import org.springframework.data.mongodb.repository.MongoRepository;
-import org.springframework.data.mongodb.repository.Query;
 import org.springframework.stereotype.Repository;
-
-import java.util.List;
 
 /**
  * Repository for accessing AIT Tech Stack information from MongoDB.
  * Collection: AITTechStack
  *
+ * <p>This repository is intentionally minimal with NO hardcoded queries.
+ * All queries are constructed dynamically using MongoTemplate in AITDynamicQueryService.
+ * This supports complete schema evolution without code changes.</p>
+ *
+ * <p>Design Philosophy:</p>
+ * <ul>
+ *   <li><b>Schema Agnostic</b> - No field paths hardcoded</li>
+ *   <li><b>LLM-Driven</b> - LLM analyzes query and constructs field paths</li>
+ *   <li><b>Evolution Ready</b> - Schema changes don't require code updates</li>
+ *   <li><b>Dynamic Only</b> - All queries via MongoTemplate in service layer</li>
+ * </ul>
+ *
  * @author DataNova
- * @version 1.0
+ * @version 2.0
  */
 @Repository
 public interface AITTechStackRepository extends MongoRepository<AITTechStackInfoEntity, String> {
-
-    /**
-     * Find AITs by component name across the entire tech stack.
-     * Searches in languages, frameworks, databases, middlewares, operating systems, and libraries.
-     */
-    @Query("""
-        {
-            $or: [
-                { 'languagesFrameworks.languages.name': { $regex: ?0, $options: 'i' } },
-                { 'languagesFrameworks.frameworks.name': { $regex: ?0, $options: 'i' } },
-                { 'infrastructure.databases.name': { $regex: ?0, $options: 'i' } },
-                { 'infrastructure.middlewares.type': { $regex: ?0, $options: 'i' } },
-                { 'infrastructure.operatingSystems.name': { $regex: ?0, $options: 'i' } },
-                { 'libraries.name': { $regex: ?0, $options: 'i' } }
-            ]
-        }
-    """)
-    List<AITTechStackInfoEntity> findByComponentAcrossTechStack(String component);
-
-    /**
-     * Find AITs by language name.
-     */
-    @Query("{ 'languagesFrameworks.languages.name': { $regex: ?0, $options: 'i' } }")
-    List<AITTechStackInfoEntity> findByLanguage(String language);
-
-    /**
-     * Find AITs by framework name.
-     */
-    @Query("{ 'languagesFrameworks.frameworks.name': { $regex: ?0, $options: 'i' } }")
-    List<AITTechStackInfoEntity> findByFramework(String framework);
-
-    /**
-     * Find AITs by database name.
-     */
-    @Query("{ 'infrastructure.databases.name': { $regex: ?0, $options: 'i' } }")
-    List<AITTechStackInfoEntity> findByDatabase(String database);
-
-    /**
-     * Find AITs by library name.
-     */
-    @Query("{ 'libraries.name': { $regex: ?0, $options: 'i' } }")
-    List<AITTechStackInfoEntity> findByLibrary(String library);
+    // Intentionally empty - all queries are dynamic via AITDynamicQueryService
+    // Only inherits basic CRUD operations from MongoRepository (findById, save, delete, etc.)
 }
-

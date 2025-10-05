@@ -73,4 +73,3 @@ Below are the AITs that have **[(${component})]** in their tech stack:
 [/]
 
 **Total AITs Found:** [(${#lists.size(list)})]
-

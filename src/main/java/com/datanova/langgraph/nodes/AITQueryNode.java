@@ -9,19 +9,14 @@ import org.bsc.langgraph4j.action.NodeAction;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 
-import java.util.HashMap;
 import java.util.Map;
 
 /**
- * AITQueryNode executes AIT Tech Stack queries using LLM-driven approach.
- *
- * <p>This node uses the LLM to intelligently query AIT tech stack information.
- * The LLM analyzes the query and calls the appropriate AITTools methods.</p>
- *
- * <p>Design principle: Minimal logic in the node - let the LLM decide everything.</p>
+ * AITQueryNode - LLM-driven AIT Tech Stack query execution.
+ * Minimal, concise, schema-agnostic.
  *
  * @author DataNova
- * @version 2.0
+ * @version 3.0
  */
 @Slf4j
 @Component
@@ -35,118 +30,151 @@ public class AITQueryNode implements NodeAction<WorkflowState> {
         this.aitTools = aitTools;
         this.chatClient = chatClientBuilder.build();
         this.objectMapper = new ObjectMapper();
-        log.info("AITQueryNode initialized with simplified LLM-driven approach");
+        log.info("AITQueryNode initialized");
     }
 
     @Override
     public Map<String, Object> apply(WorkflowState state) {
-        log.info("AITQueryNode executing for query: {}", state.query());
+        log.info("AITQueryNode: {}", state.query());
 
         try {
-            // Let LLM analyze and decide what to do
-            String prompt = String.format("""
-                You are an AIT Tech Stack assistant. Analyze the user's query and decide how to query the database.
-                
-                === USER'S QUERY ===
-                "%s"
-                
-                === AVAILABLE TOOLS ===
-                1. aitTools.getAITTechStack(aitId) - Get complete tech stack for a specific AIT number
-                   Returns: Simple data format
-                   Example: getAITTechStack("74563")
-                   
-                2. aitTools.renderAITList(component) - Find AITs and render in beautiful Markdown template (PREFERRED)
-                   Returns: Fully formatted Markdown with all tech stack details
-                   Use when: User asks for AITs by technology/component
-                   Example: renderAITList("Java")
-                   
-                3. aitTools.findAITsByComponent(component) - Find ALL AITs using a technology (ONLY for counts)
-                   Returns: Simple list of AIT IDs without details
-                   Use when: User only wants to know HOW MANY AITs (no details needed)
-                   Example: findAITsByComponent("Java")
-                
-                === DECISION LOGIC ===
-                - Specific AIT number (e.g., "AIT 74563") → use getAITTechStack
-                - User asks for AITs by technology/component → use renderAITList (DEFAULT)
-                - User ONLY wants count/number of AITs → use findAITsByComponent
-                - ANY request showing tech stack details → use renderAITList
-                
-                === IMPORTANT ===
-                DEFAULT to renderAITList for ANY query about finding AITs by technology!
-                Only use findAITsByComponent if user specifically asks for "how many" or "count".
-                
-                === EXAMPLES ===
-                "Give me AITs that use Java and Spring Boot" → renderAITList("Java")
-                "Show me AITs with MongoDB" → renderAITList("MongoDB")
-                "Which AITs use React?" → renderAITList("React")
-                "AITs using PostgreSQL" → renderAITList("PostgreSQL")
-                "How many AITs use Java?" → findAITsByComponent("Java")
-                "Give me technologies used by AIT 74563" → getAITTechStack("74563")
-                
-                Respond with ONLY this JSON:
-                {
-                  "method": "getAITTechStack" or "findAITsByComponent" or "renderAITList",
-                  "parameter": "<the parameter value>",
-                  "reasoning": "why you chose this"
-                }
-                """, state.query());
-
-            log.debug("Sending query to LLM for analysis");
-
             String llmResponse = chatClient.prompt()
-                .user(prompt)
+                .user(buildPrompt(state.query()))
                 .call()
                 .content();
 
             log.debug("LLM response: {}", llmResponse);
 
-            // Execute the tool method the LLM chose
             String result = executeToolMethod(llmResponse);
 
-            // Return results in state
-            Map<String, Object> updates = new HashMap<>();
-            updates.put("aitQueryResults", result);
-            updates.put("currentStep", "ait_query");
-
-            log.info("AITQueryNode completed. Result length: {} characters", result.length());
-            return updates;
+            return Map.of(
+                "aitQueryResults", result,
+                "currentStep", "ait_query"
+            );
 
         } catch (Exception e) {
             log.error("Error in AITQueryNode", e);
-            Map<String, Object> updates = new HashMap<>();
-            updates.put("aitQueryResults", "Error: " + e.getMessage());
-            updates.put("currentStep", "ait_query");
-            return updates;
+            return Map.of(
+                "aitQueryResults", "Error: " + e.getMessage(),
+                "currentStep", "ait_query"
+            );
         }
     }
 
-    /**
-     * Execute the tool method based on LLM's decision.
-     * Simple switch - no complex logic.
-     */
+    private String buildPrompt(String userQuery) {
+        return String.format("""
+            Analyze query and determine MongoDB query strategy.
+            
+            USER QUERY: "%s"
+            
+            SCHEMA PATHS:
+            - languagesFrameworks.languages.name (Java, Python)
+            - languagesFrameworks.frameworks.name (Spring Boot, React)
+            - infrastructure.databases.name (MongoDB, PostgreSQL)
+            - infrastructure.middlewares.type (Kafka, Redis)
+            - infrastructure.operatingSystems.name (Linux, Windows)
+            - libraries.name (Log4j, Angular)
+            
+            TOOLS (SEPARATED FIND & RENDER):
+            1. getAITTechStack(aitId) - specific AIT by ID, returns JSON
+            2. findAITsByField(fieldPath, value) - returns comma-separated AIT IDs
+            3. findAITsByMultipleCriteria(jsonString) - returns comma-separated AIT IDs
+            4. renderAITsByIds(aitIds) - renders AIT IDs as formatted Markdown
+            5. renderAITsByIds(aitIds, title) - renders with custom title
+            
+            TOOL CHAINING LOGIC:
+            - For formatted output: FIRST find, THEN render
+            - findAITsByField → returns IDs → renderAITsByIds
+            - findAITsByMultipleCriteria → returns IDs → renderAITsByIds
+            
+            EXAMPLES:
+            Query: "AITs using Java"
+            Response: {"method":"findAITsByField","parameters":{"fieldPath":"languagesFrameworks.languages.name","searchValue":"Java"},"nextAction":"render"}
+            
+            Query: "Java and MongoDB"
+            Response: {"method":"findAITsByMultipleCriteria","parameters":{"fieldQueriesJson":"{\\"languagesFrameworks.languages.name\\":\\"Java\\",\\"infrastructure.databases.name\\":\\"MongoDB\\"}"},"nextAction":"render"}
+            
+            Query: "AIT 74563"
+            Response: {"method":"getAITTechStack","parameters":{"aitId":"74563"},"nextAction":"none"}
+            
+            IMPORTANT:
+            - Always set "nextAction":"render" for find operations requiring formatted output
+            - Always set "nextAction":"none" for getAITTechStack (already formatted)
+            
+            Respond with JSON only (no markdown):
+            {"method":"<name>","parameters":{<proper_params>},"reasoning":"<brief>","nextAction":"<render|none>"}
+            """, userQuery);
+    }
+
     private String executeToolMethod(String llmResponse) {
         try {
-            // Clean JSON response
             String cleaned = llmResponse.trim()
-                .replaceFirst("^```json\\s*", "")
-                .replaceFirst("^```\\s*", "")
-                .replaceFirst("```\\s*$", "")
+                .replaceAll("^```(json)?\\s*", "")
+                .replaceAll("```\\s*$", "")
                 .trim();
 
-            // Parse LLM decision
             JsonNode decision = objectMapper.readTree(cleaned);
             String method = decision.get("method").asText();
-            String parameter = decision.get("parameter").asText();
+            JsonNode params = decision.get("parameters");
+            String nextAction = decision.has("nextAction") ? decision.get("nextAction").asText() : "none";
 
-            log.info("LLM chose: {}(\"{}\")", method, parameter);
+            log.info("LLM chose: {} with nextAction: {}", method, nextAction);
 
-            // Call the tool - simple switch with 3 options
-            return switch (method) {
-                case "getAITTechStack" -> aitTools.getAITTechStack(parameter);
-                case "findAITsByComponent" -> aitTools.findAITsByComponent(parameter);
-                case "renderAITList" -> aitTools.renderAITList(parameter);
+            String result = switch (method) {
+                case "getAITTechStack" -> {
+                    String aitId = params.has("aitId")
+                        ? params.get("aitId").asText()
+                        : params.asText();
+                    yield aitTools.getAITTechStack(aitId);
+                }
+
+                case "findAITsByField" -> {
+                    String fieldPath, searchValue;
+                    if (params.has("fieldPath")) {
+                        fieldPath = params.get("fieldPath").asText();
+                        searchValue = params.get("searchValue").asText();
+                    } else {
+                        fieldPath = params.fieldNames().next();
+                        searchValue = params.get(fieldPath).asText();
+                    }
+                    yield aitTools.findAITsByField(fieldPath, searchValue);
+                }
+
+                case "findAITsByMultipleCriteria" -> {
+                    String jsonString;
+                    if (params.has("fieldQueriesJson")) {
+                        jsonString = params.get("fieldQueriesJson").asText();
+                    } else if (params.isTextual()) {
+                        jsonString = params.asText();
+                    } else {
+                        jsonString = objectMapper.writeValueAsString(params);
+                    }
+                    yield aitTools.findAITsByMultipleCriteria(jsonString);
+                }
+
+                case "renderAITsByIds" -> {
+                    if (params.has("title")) {
+                        String aitIds = params.get("aitIds").asText();
+                        String title = params.get("title").asText();
+                        yield aitTools.renderAITsByIds(aitIds, title);
+                    } else {
+                        String aitIds = params.has("aitIds")
+                            ? params.get("aitIds").asText()
+                            : params.asText();
+                        yield aitTools.renderAITsByIds(aitIds);
+                    }
+                }
+
                 default -> "Unknown method: " + method;
             };
+
+            // Tool chaining: if result is comma-separated IDs and nextAction is "render", render them
+            if ("render".equals(nextAction) && result != null && !result.startsWith("No AITs") && !result.startsWith("Error")) {
+                log.info("Chaining to renderAITsByIds with result: {}", result);
+                result = aitTools.renderAITsByIds(result);
+            }
+
+            return result;
 
         } catch (Exception e) {
             log.error("Error executing tool method", e);
