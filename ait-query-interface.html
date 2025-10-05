@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIT Tech Stack Query Interface</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .query-section {
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+            font-size: 1em;
+        }
+
+        .query-input {
+            width: 100%;
+            padding: 15px;
+            font-size: 1em;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        .query-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            font-size: 1em;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #48bb78;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #38a169;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(72, 187, 120, 0.4);
+        }
+
+        .btn-tertiary {
+            background: #ed8936;
+            color: white;
+        }
+
+        .btn-tertiary:hover {
+            background: #dd6b20;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(237, 137, 54, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .example-queries {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .example-queries h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+
+        .example-query {
+            display: inline-block;
+            margin: 5px;
+            padding: 8px 15px;
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s ease;
+        }
+
+        .example-query:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .results-section {
+            margin-top: 30px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .result-card {
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #48bb78;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .result-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .result-meta {
+            display: flex;
+            gap: 15px;
+            font-size: 0.9em;
+            color: #718096;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+
+        .badge-error {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+
+        .badge-info {
+            background: #bee3f8;
+            color: #2c5282;
+        }
+
+        .result-content {
+            line-height: 1.8;
+            color: #4a5568;
+        }
+
+        .markdown-output {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            overflow-x: auto;
+        }
+
+        .markdown-output h1 {
+            color: #2d3748;
+            margin: 20px 0 15px 0;
+            font-size: 2em;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+
+        .markdown-output h2 {
+            color: #4a5568;
+            margin: 25px 0 15px 0;
+            font-size: 1.5em;
+        }
+
+        .markdown-output h3 {
+            color: #667eea;
+            margin: 20px 0 10px 0;
+            font-size: 1.2em;
+        }
+
+        .markdown-output ul {
+            margin: 10px 0 10px 30px;
+        }
+
+        .markdown-output li {
+            margin: 5px 0;
+        }
+
+        .markdown-output strong {
+            color: #2d3748;
+            font-weight: 600;
+        }
+
+        .markdown-output hr {
+            margin: 20px 0;
+            border: none;
+            border-top: 2px solid #e0e0e0;
+        }
+
+        .markdown-output code {
+            background: #f7fafc;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .stream-events {
+            background: #1a202c;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+
+        .stream-event {
+            padding: 8px;
+            margin: 5px 0;
+            border-left: 3px solid #667eea;
+            padding-left: 12px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .stream-event.start {
+            border-left-color: #48bb78;
+        }
+
+        .stream-event.planning {
+            border-left-color: #ed8936;
+        }
+
+        .stream-event.executing {
+            border-left-color: #667eea;
+        }
+
+        .stream-event.complete {
+            border-left-color: #48bb78;
+            font-weight: 600;
+        }
+
+        .stream-event.error {
+            border-left-color: #f56565;
+            color: #feb2b2;
+        }
+
+        .error-message {
+            background: #fed7d7;
+            color: #742a2a;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #f56565;
+            margin-top: 20px;
+        }
+
+        .info-box {
+            background: #ebf8ff;
+            border: 1px solid #90cdf4;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+
+        .info-box h4 {
+            color: #2c5282;
+            margin-bottom: 10px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2em;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .stat-label {
+            color: #718096;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧩 AIT Tech Stack Query Interface</h1>
+            <p>Query Application Information Technology systems and their technology stacks</p>
+        </div>
+
+        <div class="content">
+            <!-- Query Input Section -->
+            <div class="query-section">
+                <div class="input-group">
+                    <label for="queryInput">Enter your AIT query:</label>
+                    <textarea
+                        id="queryInput"
+                        class="query-input"
+                        rows="3"
+                        placeholder="e.g., Give me AITs using Java and MongoDB, or What technologies does AIT 74563 use?"
+                    ></textarea>
+                </div>
+
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="executeQuery()">
+                        <span>🚀</span>
+                        <span>Execute Query</span>
+                    </button>
+                    <button class="btn btn-secondary" onclick="streamQuery()">
+                        <span>📡</span>
+                        <span>Stream Query</span>
+                    </button>
+                    <button class="btn btn-tertiary" onclick="clearResults()">
+                        <span>🗑️</span>
+                        <span>Clear Results</span>
+                    </button>
+                </div>
+
+                <!-- Example Queries -->
+                <div class="example-queries">
+                    <h3>📝 Example Queries:</h3>
+                    <span class="example-query" onclick="setQuery('Give me AITs using Java and MongoDB')">
+                        AITs with Java & MongoDB
+                    </span>
+                    <span class="example-query" onclick="setQuery('What technologies does AIT 74563 use?')">
+                        Specific AIT lookup
+                    </span>
+                    <span class="example-query" onclick="setQuery('AITs using Spring Boot')">
+                        Spring Boot AITs
+                    </span>
+                    <span class="example-query" onclick="setQuery('Find AITs with PostgreSQL database')">
+                        PostgreSQL AITs
+                    </span>
+                    <span class="example-query" onclick="setQuery('AITs using Java, MongoDB and Spring Boot')">
+                        Multiple criteria
+                    </span>
+                </div>
+            </div>
+
+            <!-- Info Box -->
+            <div class="info-box">
+                <h4>💡 How it works:</h4>
+                <ul style="margin-left: 20px; color: #4a5568;">
+                    <li><strong>Execute Query:</strong> Get complete results in one response</li>
+                    <li><strong>Stream Query:</strong> Watch real-time workflow execution with live events</li>
+                    <li><strong>Natural Language:</strong> Ask questions in plain English</li>
+                    <li><strong>Auto Tool Chaining:</strong> Automatically finds and renders AITs</li>
+                </ul>
+            </div>
+
+            <!-- Results Section -->
+            <div id="resultsSection" class="results-section" style="display: none;">
+                <!-- Loading Indicator -->
+                <div id="loadingIndicator" class="loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Processing your query...</p>
+                </div>
+
+                <!-- Results will be inserted here -->
+                <div id="resultsContainer"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE_URL = 'http://localhost:8080/api/langgraph';
+
+        let currentEventSource = null;
+
+        // Set example query
+        function setQuery(query) {
+            document.getElementById('queryInput').value = query;
+        }
+
+        // Execute synchronous query
+        async function executeQuery() {
+            const query = document.getElementById('queryInput').value.trim();
+
+            if (!query) {
+                alert('Please enter a query');
+                return;
+            }
+
+            // Show results section and loading
+            showLoading();
+
+            try {
+                const startTime = Date.now();
+
+                const response = await fetch(`${API_BASE_URL}/ait/execute`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        role: 'user'
+                    })
+                });
+
+                const data = await response.json();
+                const endTime = Date.now();
+
+                hideLoading();
+                displayResults(data, endTime - startTime);
+
+            } catch (error) {
+                hideLoading();
+                displayError('Error executing query: ' + error.message);
+            }
+        }
+
+        // Stream query with SSE
+        function streamQuery() {
+            const query = document.getElementById('queryInput').value.trim();
+
+            if (!query) {
+                alert('Please enter a query');
+                return;
+            }
+
+            // Close existing stream if any
+            if (currentEventSource) {
+                currentEventSource.close();
+            }
+
+            // Show results section
+            showLoading();
+
+            // Prepare results container for streaming
+            const resultsContainer = document.getElementById('resultsContainer');
+            resultsContainer.innerHTML = `
+                <div class="result-card">
+                    <div class="result-header">
+                        <div class="result-title">Streaming AIT Query Results</div>
+                        <span class="badge badge-info">Live Stream</span>
+                    </div>
+                    <div class="stream-events" id="streamEvents"></div>
+                    <div id="streamResults" class="markdown-output" style="margin-top: 20px; display: none;"></div>
+                </div>
+            `;
+
+            hideLoading();
+
+            // Create EventSource for streaming
+            const eventSource = new EventSource(`${API_BASE_URL}/ait/stream`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    query: query,
+                    role: 'user'
+                })
+            });
+
+            // Note: EventSource doesn't support POST directly via constructor
+            // We'll use fetch with streaming instead
+            streamWithFetch(query);
+        }
+
+        async function streamWithFetch(query) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/ait/stream`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        role: 'user'
+                    })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let markdownContent = '';
+
+                const streamEventsEl = document.getElementById('streamEvents');
+                const streamResultsEl = document.getElementById('streamResults');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep incomplete line in buffer
+
+                    for (const line of lines) {
+                        if (line.startsWith('data:')) {
+                            const data = line.substring(5).trim();
+
+                            if (data) {
+                                try {
+                                    const event = JSON.parse(data);
+                                    displayStreamEvent(event, streamEventsEl);
+
+                                    // Collect markdown chunks
+                                    if (event.type === 'CHUNK') {
+                                        markdownContent += event.message;
+                                        streamResultsEl.innerHTML = formatMarkdown(markdownContent);
+                                        streamResultsEl.style.display = 'block';
+                                    }
+                                } catch (e) {
+                                    console.error('Error parsing event:', e);
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                displayError('Error streaming query: ' + error.message);
+            }
+        }
+
+        function displayStreamEvent(event, container) {
+            const eventEl = document.createElement('div');
+            eventEl.className = `stream-event ${event.type.toLowerCase()}`;
+
+            const timestamp = new Date(event.timestamp).toLocaleTimeString();
+            eventEl.innerHTML = `
+                <strong>[${timestamp}] ${event.type}</strong> - ${event.nodeName}: ${event.message || ''}
+            `;
+
+            container.appendChild(eventEl);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function displayResults(data, executionTime) {
+            const resultsContainer = document.getElementById('resultsContainer');
+
+            if (!data.success) {
+                displayError(data.error || 'Query failed');
+                return;
+            }
+
+            // Create stats
+            const statsHtml = `
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="stat-value">${executionTime}ms</div>
+                        <div class="stat-label">Execution Time</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${data.usedToolFlow ? 'Yes' : 'No'}</div>
+                        <div class="stat-label">Used Tool Flow</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${data.routeDecision || 'N/A'}</div>
+                        <div class="stat-label">Route Decision</div>
+                    </div>
+                </div>
+            `;
+
+            const resultHtml = `
+                <div class="result-card">
+                    <div class="result-header">
+                        <div class="result-title">Query Results</div>
+                        <span class="badge badge-success">Success</span>
+                    </div>
+
+                    ${statsHtml}
+
+                    <div class="result-content">
+                        <div class="markdown-output">
+                            ${formatMarkdown(data.message)}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            resultsContainer.innerHTML = resultHtml;
+        }
+
+        function formatMarkdown(text) {
+            if (!text) return '';
+
+            // Simple markdown to HTML conversion
+            let html = text;
+
+            // Headers
+            html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+            html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+            html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+            // Bold
+            html = html.replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>');
+
+            // Lists
+            html = html.replace(/^\* (.*$)/gim, '<li>$1</li>');
+            html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+
+            // Horizontal rules
+            html = html.replace(/^---$/gim, '<hr>');
+
+            // Line breaks
+            html = html.replace(/\n/g, '<br>');
+
+            return html;
+        }
+
+        function displayError(message) {
+            const resultsContainer = document.getElementById('resultsContainer');
+            resultsContainer.innerHTML = `
+                <div class="error-message">
+                    <strong>❌ Error:</strong> ${message}
+                </div>
+            `;
+        }
+
+        function showLoading() {
+            document.getElementById('resultsSection').style.display = 'block';
+            document.getElementById('loadingIndicator').style.display = 'block';
+            document.getElementById('resultsContainer').innerHTML = '';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingIndicator').style.display = 'none';
+        }
+
+        function clearResults() {
+            document.getElementById('resultsSection').style.display = 'none';
+            document.getElementById('resultsContainer').innerHTML = '';
+            document.getElementById('queryInput').value = '';
+        }
+
+        // Handle Enter key in textarea (Ctrl+Enter to submit)
+        document.getElementById('queryInput').addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                executeQuery();
+            }
+        });
+    </script>
+</body>
+</html>
+
