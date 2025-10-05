@@ -366,6 +366,8 @@ public class ChatService {
                 Available Tool Capabilities:
                 - Mathematical operations (sum, average, calculations)
                 - Temperature conversion (Celsius to Fahrenheit)
+                - CVE database queries (vulnerabilities by year, score, CVE ID)
+                - AIT tech stack queries (applications by technology, framework, language, database)
                 - Multi-step computational workflows
                 
                 Analysis Guidelines:
@@ -375,17 +377,21 @@ public class ChatService {
                 - Query requires temperature conversion
                 - Query needs processing of multiple numerical values
                 - Query asks to "calculate", "compute", "convert", "find the average", etc.
+                - Query asks about CVE vulnerabilities, security issues, CVE IDs
+                - Query asks about AITs, applications, tech stack, technologies used by applications
+                - Query mentions "which AITs use", "applications with", "tech stack for AIT"
+                - IMPORTANT: "AITs" means Application IDs (not AI technologies)
                 
                 **DIRECT ANSWER if:**
                 - Query is conversational or asks for explanation
                 - Query is about concepts, definitions, or general knowledge
                 - Query asks "what is", "how does", "explain", etc.
-                - No actual computation is requested, even if numbers are mentioned
+                - No actual computation or database query is requested
                 
                 **Data Extraction Rules:**
                 - If using tools, extract all relevant numbers from the query
                 - Only extract numbers that are data to be processed (not years, dates, or contextual numbers)
-                - If no numbers are present but computation is requested, return empty list
+                - If no numbers are present but computation/query is requested, return empty list
                 
                 Respond in this EXACT format:
                 DECISION: [USE_TOOLS or DIRECT_ANSWER]
@@ -405,6 +411,18 @@ public class ChatService {
                 REASON: Query asks for explanation of concepts, not requesting any calculation.
                 
                 Example 3:
+                Query: "What AITs use Java and Spring Boot"
+                DECISION: USE_TOOLS
+                NUMBERS: NONE
+                REASON: Query asks about AIT tech stack - needs to query database for applications using Java/Spring Boot.
+                
+                Example 4:
+                Query: "Give me CVEs from 2021 with score above 7"
+                DECISION: USE_TOOLS
+                NUMBERS: NONE
+                REASON: Query asks about CVE vulnerabilities - needs to query CVE database.
+                
+                Example 5:
                 Query: "In 2024, what is machine learning?"
                 DECISION: DIRECT_ANSWER
                 NUMBERS: NONE

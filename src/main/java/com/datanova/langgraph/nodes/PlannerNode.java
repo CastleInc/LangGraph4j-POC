@@ -69,24 +69,47 @@ public class PlannerNode implements NodeAction<WorkflowState> {
                 Available capabilities:
                 - Mathematical operations (sum, average, etc.)
                 - Temperature conversion (Celsius to Fahrenheit)
+                - CVE database queries (vulnerabilities by year, score, CVE ID)
+                - AIT tech stack queries (applications by technology, framework, language, database)
                 - Data summarization
                 
+                === IMPORTANT: AIT QUERIES ===
+                When user asks about "AITs", "applications", "tech stack", "which AITs use X", "applications with Y":
+                - This is an AIT tech stack query
+                - "AITs" means Application IDs (not AI technologies)
+                - Examples: "What AITs use Java", "Which applications have MongoDB", "AITs with Spring Boot"
+                
                 === CRITICAL INSTRUCTIONS ===
-                Your job is to create a PLAN ONLY - DO NOT perform the actual calculations.
-                Do NOT calculate the sum, average, or temperature conversions.
+                Your job is to create a PLAN ONLY - DO NOT perform the actual calculations or queries.
+                Do NOT calculate the sum, average, temperature conversions, or fetch data.
                 Just describe WHAT needs to be done and in what ORDER.
                 
-                The actual calculations will be performed by specialized nodes later.
+                The actual work will be performed by specialized nodes later:
+                - math_executor for calculations
+                - temperature_converter for conversions
+                - cve_query for CVE database lookups
+                - ait_query for AIT tech stack lookups
+                - summarizer for final results
                 
                 Create a clear, actionable plan with numbered steps. Be specific about:
                 - What operations are needed
                 - What data will be processed
                 - The order of execution
                 
-                Example good plan:
+                Example good plans:
                 1. Calculate sum and average of the numbers [x, y, z]
                 2. Convert the average temperature to Fahrenheit
                 3. Summarize the results
+                
+                OR
+                
+                1. Query AIT database for applications using Java and Spring Boot
+                2. Summarize the results with application details
+                
+                OR
+                
+                1. Query CVE database for vulnerabilities from year 2021
+                2. Summarize the findings
                 
                 Example BAD plan (do not do this):
                 1. Sum is 176.6

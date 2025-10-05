@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>AITs Tech Stack</title>
+</head>
+<body>
+<h1>🧩 AITs Using <span th:text="${component}"></span></h1>
+<p>Below are the AITs that have <strong th:text="${component}"></strong> in their tech stack:</p>
+
+<div th:each="ait : ${list}" th:if="${ait != null and ait.ait != null}">
+    <hr/>
+    <h2>AIT: <span th:text="${ait.ait}"></span></h2>
+
+    <!-- Languages & Frameworks -->
+    <div th:if="${ait.languagesFrameworks != null}">
+        <!-- Languages -->
+        <div th:if="${ait.languagesFrameworks.languages != null and not #lists.isEmpty(ait.languagesFrameworks.languages)}">
+            <h3>📝 Languages</h3>
+            <ul>
+                <li th:each="lang : ${ait.languagesFrameworks.languages}">
+                    <strong th:text="${lang.name}"></strong>
+                    <span th:if="${lang.version != null and not #strings.isEmpty(lang.version)}"
+                          th:text="'(' + ${lang.version} + ')'"></span>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Frameworks -->
+        <div th:if="${ait.languagesFrameworks.frameworks != null and not #lists.isEmpty(ait.languagesFrameworks.frameworks)}">
+            <h3>🔧 Frameworks</h3>
+            <ul>
+                <li th:each="fw : ${ait.languagesFrameworks.frameworks}">
+                    <strong th:text="${fw.name}"></strong>
+                    <span th:if="${fw.version != null and not #strings.isEmpty(fw.version)}"
+                          th:text="'(' + ${fw.version} + ')'"></span>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Infrastructure -->
+    <div th:if="${ait.infrastructure != null}">
+        <!-- Databases -->
+        <div th:if="${ait.infrastructure.databases != null and not #lists.isEmpty(ait.infrastructure.databases)}">
+            <h3>💾 Databases</h3>
+            <ul>
+                <li th:each="db : ${ait.infrastructure.databases}">
+                    <strong th:text="${db.name}"></strong>
+                    <span th:if="${db.version != null and not #strings.isEmpty(db.version)}"
+                          th:text="'(' + ${db.version} + ')'"></span>
+                    <span th:if="${db.environment != null and not #strings.isEmpty(db.environment)}"
+                          th:text="'[' + ${db.environment} + ']'"></span>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Middlewares -->
+        <div th:if="${ait.infrastructure.middlewares != null and not #lists.isEmpty(ait.infrastructure.middlewares)}">
+            <h3>⚙️ Middlewares</h3>
+            <ul>
+                <li th:each="mw : ${ait.infrastructure.middlewares}">
+                    <strong th:text="${mw.type}"></strong>
+                    <span th:if="${mw.version != null and not #strings.isEmpty(mw.version)}"
+                          th:text="'(' + ${mw.version} + ')'"></span>
+                    <span th:if="${mw.environment != null and not #strings.isEmpty(mw.environment)}"
+                          th:text="'[' + ${mw.environment} + ']'"></span>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Operating Systems -->
+        <div th:if="${ait.infrastructure.operatingSystems != null and not #lists.isEmpty(ait.infrastructure.operatingSystems)}">
+            <h3>🖥️ Operating Systems</h3>
+            <ul>
+                <li th:each="os : ${ait.infrastructure.operatingSystems}">
+                    <strong th:text="${os.name}"></strong>
+                    <span th:if="${os.version != null and not #strings.isEmpty(os.version)}"
+                          th:text="'(' + ${os.version} + ')'"></span>
+                    <span th:if="${os.environment != null and not #strings.isEmpty(os.environment)}"
+                          th:text="'[' + ${os.environment} + ']'"></span>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Libraries -->
+    <div th:if="${ait.libraries != null and not #lists.isEmpty(ait.libraries)}">
+        <h3>📚 Libraries</h3>
+        <ul>
+            <li th:each="lib : ${ait.libraries}">
+                <span th:text="${lib.name}"></span>
+                <span th:if="${lib.version != null and not #strings.isEmpty(lib.version)}"
+                      th:text="'(' + ${lib.version} + ')'"></span>
+            </li>
+        </ul>
+    </div>
+</div>
+
+<hr/>
+<p><strong>Total AITs Found:</strong> <span th:text="${#lists.size(list)}"></span></p>
+
+</body>
+</html>

@@ -67,6 +67,7 @@ public class LLMConfig {
 
         var openAiApi = new OpenAiApi(baseUrl, apiKey);
 
+        // GPT-4o mini supports all standard parameters
         var options = OpenAiChatOptions.builder()
                 .model(modelName)
                 .temperature(temperature)

@@ -1,5 +1,6 @@
 package com.datanova.langgraph.nodes;
 
+import com.datanova.langgraph.service.WorkflowVisualizationService;
 import com.datanova.langgraph.state.WorkflowState;
 import lombok.extern.slf4j.Slf4j;
 import org.bsc.langgraph4j.action.NodeAction;
@@ -7,10 +8,12 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * SummarizerNode generates final human-readable summaries using the LLM.
+ * Now includes workflow visualization for demo purposes.
  *
  * <p>This node is the terminal step in the workflow. It uses the LLM to analyze all
  * accumulated results and generate a coherent, human-friendly summary that answers
@@ -32,7 +35,7 @@ import java.util.Map;
  * </ul>
  *
  * @author DataNova
- * @version 1.0
+ * @version 2.0
  * @see WorkflowState
  * @see org.bsc.langgraph4j.action.NodeAction
  */
@@ -40,15 +43,19 @@ import java.util.Map;
 @Component
 public class SummarizerNode implements NodeAction<WorkflowState> {
     private final ChatClient chatClient;
+    private final WorkflowVisualizationService visualizationService;
 
     /**
      * Constructor for dependency injection.
      *
      * @param chatClientBuilder the ChatClient builder for LLM interaction
+     * @param visualizationService the service for generating workflow visualizations
      */
-    public SummarizerNode(ChatClient.Builder chatClientBuilder) {
+    public SummarizerNode(ChatClient.Builder chatClientBuilder,
+                          WorkflowVisualizationService visualizationService) {
         this.chatClient = chatClientBuilder.build();
-        log.info("SummarizerNode initialized");
+        this.visualizationService = visualizationService;
+        log.info("SummarizerNode initialized with visualization support");
     }
 
     /**
@@ -64,7 +71,21 @@ public class SummarizerNode implements NodeAction<WorkflowState> {
      */
     @Override
     public Map<String, Object> apply(WorkflowState state) {
-        log.info("SummarizerNode executing - Generating final summary");
+        log.info("SummarizerNode executing - Generating final summary with visualization");
+
+        // Check if AIT query results contain a rendered template (starts with #)
+        String aitQueryResults = (String) state.data().get("aitQueryResults");
+        if (aitQueryResults != null && aitQueryResults.trim().startsWith("#")) {
+            // This is a rendered Markdown template - pass it through directly
+            log.info("Detected rendered template output - passing through without summarization");
+
+            Map<String, Object> updates = new HashMap<>();
+            updates.put(WorkflowState.FINAL_ANSWER_KEY, aitQueryResults);
+            updates.put(WorkflowState.COMPLETE_KEY, true);
+            updates.put(WorkflowState.CURRENT_STEP_KEY, "summarizer");
+
+            return updates;
+        }
 
         // Pass entire state to LLM - let it decide what's relevant and how to present it
         String prompt = String.format("""
@@ -92,16 +113,27 @@ public class SummarizerNode implements NodeAction<WorkflowState> {
         String summary = chatClient.prompt().user(prompt).call().content();
 
         log.info("Summary generated successfully");
-        if (summary != null) {
-            log.debug("Generated summary length: {} characters", summary.length());
+
+        // Add workflow visualization for demo purposes
+        String finalAnswer = summary != null ? summary : "Unable to generate summary";
+
+        // Append visualization if execution trace exists
+        if (state.data().containsKey("executionTrace")) {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> trace = (List<Map<String, Object>>) state.data().get("executionTrace");
+
+            if (trace != null && !trace.isEmpty()) {
+                String flowDiagram = visualizationService.generateFlowDiagram(trace);
+                finalAnswer = finalAnswer + "\n\n" + flowDiagram;
+
+                log.info("Added workflow visualization to response");
+            }
         }
 
         Map<String, Object> updates = new HashMap<>();
-        updates.put(WorkflowState.FINAL_ANSWER_KEY, summary != null ? summary : "Unable to generate summary");
+        updates.put(WorkflowState.FINAL_ANSWER_KEY, finalAnswer);
         updates.put(WorkflowState.COMPLETE_KEY, true);
         updates.put(WorkflowState.CURRENT_STEP_KEY, "summarizer");
-
-        log.info("Workflow marked as complete");
 
         return updates;
     }

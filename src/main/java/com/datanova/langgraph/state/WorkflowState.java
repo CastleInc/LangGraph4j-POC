@@ -62,6 +62,12 @@ public class WorkflowState extends AgentState {
     /** Key for the completion flag indicating workflow has finished */
     public static final String COMPLETE_KEY = "complete";
 
+    /** Key for CVE query results */
+    public static final String CVE_QUERY_RESULTS_KEY = "cveQueryResults";
+
+    /** Key for AIT query results */
+    public static final String AIT_QUERY_RESULTS_KEY = "aitQueryResults";
+
     /**
      * Constructs a new WorkflowState with an empty data map.
      */

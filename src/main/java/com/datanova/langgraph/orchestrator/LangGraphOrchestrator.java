@@ -59,6 +59,8 @@ public class LangGraphOrchestrator {
     private final RouterNode routerNode;
     private final MathExecutorNode mathExecutorNode;
     private final TemperatureConverterNode temperatureConverterNode;
+    private final CVEQueryNode cveQueryNode;
+    private final AITQueryNode aitQueryNode;
     private final SummarizerNode summarizerNode;
 
     /**
@@ -68,17 +70,23 @@ public class LangGraphOrchestrator {
      * @param routerNode the router node for LLM-driven routing decisions
      * @param mathExecutorNode the math executor for calculations
      * @param temperatureConverterNode the temperature converter for unit conversions
+     * @param cveQueryNode the CVE query node for database queries
+     * @param aitQueryNode the AI-driven query node for additional processing
      * @param summarizerNode the summarizer for generating final results
      */
     public LangGraphOrchestrator(PlannerNode plannerNode,
                                  RouterNode routerNode,
                                  MathExecutorNode mathExecutorNode,
                                  TemperatureConverterNode temperatureConverterNode,
+                                 CVEQueryNode cveQueryNode,
+                                 AITQueryNode aitQueryNode,
                                  SummarizerNode summarizerNode) {
         this.plannerNode = plannerNode;
         this.routerNode = routerNode;
         this.mathExecutorNode = mathExecutorNode;
         this.temperatureConverterNode = temperatureConverterNode;
+        this.cveQueryNode = cveQueryNode;
+        this.aitQueryNode = aitQueryNode;
         this.summarizerNode = summarizerNode;
         log.info("LangGraphOrchestrator initialized with all workflow nodes");
     }
@@ -116,6 +124,8 @@ public class LangGraphOrchestrator {
         workflow.addNode("router", node_async(routerNode));
         workflow.addNode("math_executor", node_async(mathExecutorNode));
         workflow.addNode("temperature_converter", node_async(temperatureConverterNode));
+        workflow.addNode("cve_query", node_async(cveQueryNode));
+        workflow.addNode("ait_query", node_async(aitQueryNode));
         workflow.addNode("summarizer", node_async(summarizerNode));
         log.debug("Added all workflow nodes");
 
@@ -129,6 +139,8 @@ public class LangGraphOrchestrator {
         Map<String, String> routerEdgeMapping = new HashMap<>();
         routerEdgeMapping.put("math_executor", "math_executor");
         routerEdgeMapping.put("temperature_converter", "temperature_converter");
+        routerEdgeMapping.put("cve_query", "cve_query");
+        routerEdgeMapping.put("ait_query", "ait_query");
         routerEdgeMapping.put("summarizer", "summarizer");
         routerEdgeMapping.put("END", END);
 
@@ -151,6 +163,8 @@ public class LangGraphOrchestrator {
         // After each execution node, go back to router for next decision
         workflow.addEdge("math_executor", "router");
         workflow.addEdge("temperature_converter", "router");
+        workflow.addEdge("cve_query", "router");
+        workflow.addEdge("ait_query", "router");
 
         // Summarizer always ends
         workflow.addEdge("summarizer", END);

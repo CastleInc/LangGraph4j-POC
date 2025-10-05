@@ -3,6 +3,14 @@ spring:
     name: langgraph-poc
   main:
     allow-bean-definition-overriding: true
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/genai_kb}
+      database: ${MONGODB_DATABASE:genai_kb}
+      # Collections used:
+      # - cves: CVE (Common Vulnerabilities and Exposures) data
+      # - AITTechStack: AIT Tech Stack information (languages, frameworks, databases, etc.)
+
   ai:
     openai:
       api-key: ${OPENAI_API_KEY}
@@ -11,7 +19,7 @@ spring:
         options:
           model: ${MODEL_NAME}
           temperature: ${TEMPERATURE:0.1}
-          max-tokens: ${MAX_TOKENS:512}
+          max_tokens: ${MAX_TOKENS:512}
     # Uncomment below to use local Ollama instead of OpenAI
     # ollama:
     #   base-url: http://localhost:11434

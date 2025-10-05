@@ -88,45 +88,69 @@ public class RouterNode implements NodeAction<WorkflowState> {
                 sum: %s
                 average: %s
                 fahrenheit: %s
+                cveQueryResults: %s
+                aitQueryResults: %s
                 currentStep: %s
                 numbers: %s
                 
                 === AVAILABLE AGENTS ===
                 1. 'math_executor' - Calculates sum and average of numbers
                 2. 'temperature_converter' - Converts Celsius to Fahrenheit
-                3. 'summarizer' - Creates final summary and ends workflow
+                3. 'cve_query' - Queries CVE database for vulnerabilities (by year, score, CVE ID)
+                4. 'ait_query' - Queries AIT tech stack information (by AIT ID, component, language, framework, database)
+                5. 'summarizer' - Creates final summary and ends workflow
                 
                 === YOUR DECISION CRITERIA ===
                 
-                STEP 1: Check if math calculations are done
+                STEP 1: Check if this is an AIT tech stack query
+                - Does the query mention AIT, application, tech stack, technologies, languages, frameworks, databases?
+                - Keywords: "AIT", "AITs", "application", "applications", "tech stack", "which AITs", "what AITs", 
+                  "using Java", "Spring Boot", "MongoDB", "React", "Python", "framework", "database", "language"
+                - Common patterns: "AITs using X", "which AITs use X", "what AITs have X", "applications with X"
+                - IMPORTANT: "AITs" in this context means Application IDs, not AI technologies!
+                - If this looks like a tech stack query and aitQueryResults is null → route to 'ait_query'
+                
+                STEP 2: Check if this is a CVE database query
+                - Does the query mention CVE, vulnerabilities, security issues, baseScore?
+                - Keywords: "CVE", "published", "baseScore", "vulnerability", "year", "security"
+                - If yes and cveQueryResults is null → route to 'cve_query'
+                
+                STEP 3: Check if math calculations are done
                 - Look at the 'sum' value above
                 - Look at the 'average' value above
                 - If BOTH have numeric values (not null, not "Not completed"), then math IS DONE
                 - If either is null or "Not completed", then math is NOT done yet
                 
-                STEP 2: Check if temperature conversion is done
+                STEP 4: Check if temperature conversion is done
                 - Look at the 'fahrenheit' value above
                 - If it has a numeric value (not null, not "Not completed"), then conversion IS DONE
                 - If it is null or "Not completed", then conversion is NOT done yet
                 
-                STEP 3: Determine what user requested
-                - Does the user's query ask for math operations (sum, average, calculate)?
-                - Does the user's query ask for temperature conversion (Fahrenheit, convert)?
-                
-                STEP 4: Make routing decision
+                STEP 5: Make routing decision
+                - If tech stack query (AITs/applications + technology names) AND aitQueryResults is null → route to 'ait_query'
+                - If CVE query was requested AND cveQueryResults is null → route to 'cve_query'
                 - If math was requested AND math is NOT done → route to 'math_executor'
                 - If math IS done AND conversion was requested AND conversion is NOT done → route to 'temperature_converter'
                 - If ALL requested operations ARE done → route to 'summarizer'
                 
                 CRITICAL RULES:
-                1. DO NOT route to math_executor if sum and average already have numeric values
-                2. DO NOT route to temperature_converter if fahrenheit already has a numeric value
-                3. DO NOT skip operations that the user explicitly requested
-                4. ALWAYS end with 'summarizer' when all requested work is complete
+                1. DO NOT route to ait_query if aitQueryResults already has data
+                2. DO NOT route to cve_query if cveQueryResults already has data
+                3. DO NOT route to math_executor if sum and average already have numeric values
+                4. DO NOT route to temperature_converter if fahrenheit already has a numeric value
+                5. DO NOT skip operations that the user explicitly requested
+                6. ALWAYS end with 'summarizer' when all requested work is complete
+                7. When user asks about "AITs using [technology]" or "applications with [technology]" → route to 'ait_query'
+                
+                EXAMPLES:
+                - "What AITs use Java and Spring Boot" → 'ait_query' (tech stack query)
+                - "Which applications have MongoDB" → 'ait_query' (tech stack query)
+                - "Give me CVEs from 2021" → 'cve_query' (CVE query)
+                - "Calculate sum of [1,2,3]" → 'math_executor' (math query)
                 
                 Respond with a JSON object containing:
                 {
-                  "nextNode": "math_executor OR temperature_converter OR summarizer",
+                  "nextNode": "ait_query OR cve_query OR math_executor OR temperature_converter OR summarizer",
                   "reasoning": "Brief explanation referencing the actual state values"
                 }
                 
@@ -136,6 +160,8 @@ public class RouterNode implements NodeAction<WorkflowState> {
                 state.sum() != null ? state.sum().toString() : "null",
                 state.average() != null ? state.average().toString() : "null",
                 state.fahrenheit() != null ? state.fahrenheit().toString() : "null",
+                state.data().get(WorkflowState.CVE_QUERY_RESULTS_KEY) != null ? "completed" : "null",
+                state.data().get(WorkflowState.AIT_QUERY_RESULTS_KEY) != null ? "completed" : "null",
                 state.currentStep() != null ? state.currentStep() : "none",
                 state.numbers() != null ? state.numbers() : "[]"
         );
@@ -153,96 +179,30 @@ public class RouterNode implements NodeAction<WorkflowState> {
         try {
             String cleanedResponse = cleanJsonResponse(response);
             JsonNode jsonResponse = objectMapper.readTree(cleanedResponse);
-            nextNode = jsonResponse.get("nextNode").asText();
-            reasoning = jsonResponse.has("reasoning") ? jsonResponse.get("reasoning").asText() : "No reasoning provided";
+
+            // Safely get nextNode with null checking
+            JsonNode nextNodeField = jsonResponse.get("nextNode");
+            if (nextNodeField == null || nextNodeField.isNull()) {
+                throw new IllegalArgumentException("nextNode field is missing or null in response");
+            }
+            nextNode = nextNodeField.asText();
+
+            reasoning = jsonResponse.has("reasoning") && !jsonResponse.get("reasoning").isNull()
+                ? jsonResponse.get("reasoning").asText()
+                : "No reasoning provided";
 
             log.info("LLM Routing Decision: {} -> {}", state.currentStep(), nextNode);
             log.debug("LLM Reasoning: {}", reasoning);
 
         } catch (Exception e) {
             log.error("Failed to parse LLM routing response as JSON: {}", response, e);
-            log.warn("Falling back to LLM for clarification");
+            log.warn("Falling back to direct summarizer routing due to parse failure");
 
-            // Let LLM fix its own response format
-            String clarificationPrompt = String.format("""
-                    Your previous response was not valid JSON: "%s"
-                    
-                    Please provide your routing decision again as valid JSON:
-                    {
-                      "nextNode": "math_executor OR temperature_converter OR summarizer",
-                      "reasoning": "Your reasoning"
-                    }
-                    
-                    State reminder:
-                    %s
-                    
-                    Respond with ONLY the raw JSON object. Do NOT use markdown code blocks. Do NOT add ```json or ```. Just the JSON object.
-                    """,
-                    response,
-                    state
-            );
+            // Default to summarizer when we can't parse the response
+            nextNode = "summarizer";
+            reasoning = "Defaulted to summarizer due to malformed LLM response: " + response;
 
-            String clarifiedResponse = chatClient.prompt()
-                    .user(clarificationPrompt)
-                    .call()
-                    .content();
-
-            try {
-                String cleanedClarified = cleanJsonResponse(clarifiedResponse);
-                JsonNode jsonResponse = objectMapper.readTree(cleanedClarified);
-                nextNode = jsonResponse.get("nextNode").asText();
-                reasoning = jsonResponse.has("reasoning") ? jsonResponse.get("reasoning").asText() : "No reasoning provided";
-
-                log.info("LLM Routing Decision (after clarification): {} -> {}", state.currentStep(), nextNode);
-                log.debug("LLM Reasoning: {}", reasoning);
-
-            } catch (Exception e2) {
-                log.error("Failed to parse clarified response: {}", clarifiedResponse, e2);
-                log.warn("Using LLM to intelligently extract routing decision from malformed response");
-
-                // Let the LLM extract and decide from its own malformed response
-                String safeResponse = clarifiedResponse != null ? clarifiedResponse : "No response";
-                String extractionPrompt = String.format("""
-                        You previously gave a response that wasn't valid JSON, but you need to make a routing decision.
-                        
-                        Your previous response was: "%s"
-                        
-                        Current workflow state:
-                        %s
-                        
-                        Available nodes: math_executor, temperature_converter, summarizer
-                        
-                        Based on your previous response and the context, which node should execute next?
-                        Think about what you were trying to say in your previous response.
-                        
-                        Respond with ONLY ONE WORD - the exact node name:
-                        math_executor OR temperature_converter OR summarizer
-                        
-                        Just the node name, nothing else:
-                        """,
-                        safeResponse,
-                        state
-                );
-
-                String extractedNode = chatClient.prompt()
-                        .user(extractionPrompt)
-                        .call()
-                        .content();
-
-                // Trust the LLM's final decision, just clean up whitespace
-                nextNode = extractedNode != null ? extractedNode.trim().toLowerCase() : "summarizer";
-
-                // Validate it's one of our known nodes (minimal validation, not if-else logic)
-                if (!nextNode.equals("math_executor") &&
-                    !nextNode.equals("temperature_converter") &&
-                    !nextNode.equals("summarizer")) {
-                    log.warn("LLM returned unexpected node '{}', defaulting to summarizer", nextNode);
-                    nextNode = "summarizer";
-                }
-
-                reasoning = "LLM extracted decision from malformed response: " + safeResponse;
-                log.info("Extracted routing decision: {}", nextNode);
-            }
+            log.info("Using fallback routing decision: {}", nextNode);
         }
 
         return Map.of(
