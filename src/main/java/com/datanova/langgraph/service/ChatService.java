@@ -1,11 +1,14 @@
 package com.datanova.langgraph.service;
 
 import com.datanova.langgraph.model.ChatResponse;
+import com.datanova.langgraph.model.StreamEvent;
 import com.datanova.langgraph.orchestrator.LangGraphOrchestrator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -44,7 +47,7 @@ public class ChatService {
     public ChatService(ChatClient.Builder chatClientBuilder, LangGraphOrchestrator orchestrator) {
         this.chatClient = chatClientBuilder.build();
         this.orchestrator = orchestrator;
-        log.info("ChatService initialized");
+        log.info("ChatService initialized with streaming support");
     }
 
     /**
@@ -80,6 +83,257 @@ public class ChatService {
             // Get direct answer from LLM
             return getDirectLLMResponse(query, decision, role);
         }
+    }
+
+    /**
+     * Streams workflow execution with real-time event updates.
+     *
+     * <p>Returns a Flux of StreamEvent objects that provide live updates:
+     * - Workflow start and initialization
+     * - Planning phase with token-by-token plan generation
+     * - Routing decisions with reasoning
+     * - Execution results from each node
+     * - Token-by-token final answer streaming
+     * - Completion with full state
+     * </p>
+     *
+     * @param query user's query
+     * @param role message role
+     * @return Flux of StreamEvent objects
+     */
+    public Flux<StreamEvent> processQueryStream(String query, String role) {
+        log.info("Starting streaming query processing: '{}'", query);
+
+        return Flux.defer(() -> {
+            try {
+                // Emit START event
+                return Flux.concat(
+                    Flux.just(StreamEvent.builder()
+                        .type(StreamEvent.EventType.START)
+                        .nodeName("system")
+                        .message("Analyzing query and determining processing strategy...")
+                        .timestamp(System.currentTimeMillis())
+                        .build()),
+
+                    // Analyze query with LLM
+                    analyzeQueryStream(query),
+
+                    // Execute workflow or direct response
+                    executeStreamingWorkflow(query, role)
+                );
+            } catch (Exception e) {
+                log.error("Error in streaming query processing", e);
+                return Flux.just(StreamEvent.builder()
+                    .type(StreamEvent.EventType.ERROR)
+                    .nodeName("system")
+                    .message("Error: " + e.getMessage())
+                    .timestamp(System.currentTimeMillis())
+                    .build());
+            }
+        });
+    }
+
+    /**
+     * Analyzes query and emits routing decision event.
+     */
+    private Flux<StreamEvent> analyzeQueryStream(String query) {
+        return Flux.defer(() -> {
+            RouteDecision decision = analyzeQueryAndDecideRoute(query);
+
+            return Flux.just(StreamEvent.builder()
+                .type(StreamEvent.EventType.ROUTE_DECISION)
+                .nodeName("analyzer")
+                .message(decision.getReason())
+                .data(Map.of(
+                    "decision", decision.shouldUseTool() ? "TOOL_FLOW" : "DIRECT_ANSWER",
+                    "numbers", decision.getNumbers()
+                ))
+                .timestamp(System.currentTimeMillis())
+                .build());
+        });
+    }
+
+    /**
+     * Executes workflow with streaming events.
+     */
+    private Flux<StreamEvent> executeStreamingWorkflow(String query, String role) {
+        return Flux.defer(() -> {
+            RouteDecision decision = analyzeQueryAndDecideRoute(query);
+
+            if (decision.shouldUseTool()) {
+                return executeToolFlowStream(query, decision.getNumbers());
+            } else {
+                return streamDirectLLMResponse(query);
+            }
+        });
+    }
+
+    /**
+     * Executes tool flow with streaming updates for each node.
+     */
+    private Flux<StreamEvent> executeToolFlowStream(String query, List<Double> numbers) {
+        return Flux.defer(() -> {
+            try {
+                long startTime = System.currentTimeMillis();
+
+                // Emit workflow start
+                Flux<StreamEvent> startEvent = Flux.just(StreamEvent.builder()
+                    .type(StreamEvent.EventType.PLANNING)
+                    .nodeName("planner")
+                    .message("Creating execution plan...")
+                    .data(Map.of("numbers", numbers))
+                    .timestamp(System.currentTimeMillis())
+                    .build());
+
+                // Execute workflow
+                Map<String, Object> workflowResult = orchestrator.executeGraph(query, numbers);
+
+                // Stream events from execution trace
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> trace = (List<Map<String, Object>>) workflowResult.get("executionTrace");
+
+                Flux<StreamEvent> traceEvents = Flux.fromIterable(trace)
+                    .delayElements(Duration.ofMillis(100))
+                    .map(traceEntry -> {
+                        String nodeName = (String) traceEntry.get("node");
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> state = (Map<String, Object>) traceEntry.get("state");
+
+                        return createEventFromTraceEntry(nodeName, state);
+                    });
+
+                // Stream final answer token by token
+                String finalAnswer = (String) workflowResult.get("finalAnswer");
+                Flux<StreamEvent> answerStream = streamText(finalAnswer, "summarizer");
+
+                // Emit completion event
+                Flux<StreamEvent> completeEvent = Flux.just(StreamEvent.builder()
+                    .type(StreamEvent.EventType.COMPLETE)
+                    .nodeName("system")
+                    .message("Workflow completed successfully")
+                    .data(Map.of(
+                        "executionTimeMs", System.currentTimeMillis() - startTime,
+                        "workflowState", workflowResult
+                    ))
+                    .timestamp(System.currentTimeMillis())
+                    .build());
+
+                return Flux.concat(startEvent, traceEvents, answerStream, completeEvent);
+
+            } catch (Exception e) {
+                log.error("Error in tool flow stream", e);
+                return Flux.just(StreamEvent.builder()
+                    .type(StreamEvent.EventType.ERROR)
+                    .nodeName("system")
+                    .message("Error: " + e.getMessage())
+                    .timestamp(System.currentTimeMillis())
+                    .build());
+            }
+        });
+    }
+
+    /**
+     * Creates StreamEvent from execution trace entry.
+     */
+    private StreamEvent createEventFromTraceEntry(String nodeName, Map<String, Object> state) {
+        StreamEvent.EventType eventType;
+        String message;
+
+        switch (nodeName) {
+            case "__START__":
+                eventType = StreamEvent.EventType.START;
+                message = "Workflow initialized with query and numbers";
+                break;
+            case "planner":
+                eventType = StreamEvent.EventType.PLAN_COMPLETE;
+                message = "Execution plan created: " + (state.get("plan") != null ?
+                    state.get("plan").toString().substring(0, Math.min(100, state.get("plan").toString().length())) + "..."
+                    : "");
+                break;
+            case "router":
+                eventType = StreamEvent.EventType.ROUTE_DECISION;
+                message = "Router decision: " + state.get("routerDecision");
+                break;
+            case "math_executor":
+                eventType = StreamEvent.EventType.CALCULATION;
+                message = String.format("Calculated sum=%.2f, average=%.2f",
+                    state.get("sum"), state.get("average"));
+                break;
+            case "temperature_converter":
+                eventType = StreamEvent.EventType.CONVERSION;
+                message = String.format("Converted to %.2f°F", state.get("fahrenheit"));
+                break;
+            case "summarizer":
+                eventType = StreamEvent.EventType.SUMMARIZING;
+                message = "Generating final summary...";
+                break;
+            default:
+                eventType = StreamEvent.EventType.EXECUTING;
+                message = "Executing " + nodeName;
+        }
+
+        return StreamEvent.builder()
+            .type(eventType)
+            .nodeName(nodeName)
+            .message(message)
+            .data(state)
+            .timestamp(System.currentTimeMillis())
+            .build();
+    }
+
+    /**
+     * Streams LLM response token by token.
+     */
+    private Flux<StreamEvent> streamDirectLLMResponse(String query) {
+        return chatClient.prompt()
+            .user(query)
+            .stream()
+            .content()
+            .map(token -> StreamEvent.builder()
+                .type(StreamEvent.EventType.CHUNK)
+                .nodeName("llm")
+                .message(token)
+                .timestamp(System.currentTimeMillis())
+                .build())
+            .concatWith(Flux.just(StreamEvent.builder()
+                .type(StreamEvent.EventType.COMPLETE)
+                .nodeName("system")
+                .message("Direct response completed")
+                .timestamp(System.currentTimeMillis())
+                .build()));
+    }
+
+    /**
+     * Streams text token by token as events.
+     */
+    private Flux<StreamEvent> streamText(String text, String nodeName) {
+        if (text == null || text.isEmpty()) {
+            return Flux.empty();
+        }
+
+        // Split into words for token simulation
+        String[] words = text.split("\\s+");
+
+        return Flux.fromArray(words)
+            .delayElements(Duration.ofMillis(50))
+            .map(word -> StreamEvent.builder()
+                .type(StreamEvent.EventType.CHUNK)
+                .nodeName(nodeName)
+                .message(word + " ")
+                .timestamp(System.currentTimeMillis())
+                .build());
+    }
+
+    /**
+     * Simple token-by-token streaming for direct chat.
+     */
+    public Flux<String> streamDirectChat(String message) {
+        log.info("Streaming direct chat for: {}", message);
+
+        return chatClient.prompt()
+            .user(message)
+            .stream()
+            .content();
     }
 
     /**
