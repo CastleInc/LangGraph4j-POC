@@ -528,7 +528,7 @@ Contributions welcome!
 
 ## 👤 Author
 
-DataNova Engineering Team
+CastleInc(Vishan Lal)
 
 ---
 
@@ -539,7 +539,3 @@ DataNova Engineering Team
 **Every line of business logic has been replaced with LLM reasoning.**
 
 ---
-
-## 📄 License
-
-This project is a proof-of-concept demonstrating LLM-driven architecture patterns.
