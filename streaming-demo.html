@@ -3,225 +3,456 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LangGraph4j Streaming Demo</title>
+    <title>LangGraph4j Streaming Chat</title>
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 1200px;
-            margin: 50px auto;
-            padding: 20px;
-            background-color: #f5f5f5;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
-        h1 {
-            color: #333;
-            text-align: center;
-        }
-        .container {
+        .chat-container {
+            width: 90%;
+            max-width: 900px;
+            height: 90vh;
             background: white;
-            padding: 30px;
-            border-radius: 10px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .chat-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-        .input-group {
-            margin-bottom: 20px;
+        .chat-header h1 {
+            font-size: 24px;
+            font-weight: 600;
         }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-            color: #555;
+        .chat-header p {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-top: 5px;
         }
-        input[type="text"] {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #ddd;
-            border-radius: 5px;
-            font-size: 16px;
-        }
-        button {
-            background-color: #4CAF50;
-            color: white;
-            padding: 12px 30px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 16px;
-            margin-right: 10px;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-        button:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
-        }
-        .btn-secondary {
-            background-color: #008CBA;
-        }
-        .btn-secondary:hover {
-            background-color: #007399;
-        }
-        #output {
-            margin-top: 30px;
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
             padding: 20px;
-            background-color: #f9f9f9;
-            border-radius: 5px;
-            min-height: 100px;
-            border: 2px solid #e0e0e0;
+            background: #f7f7f8;
         }
-        .event {
-            margin-bottom: 15px;
-            padding: 12px;
-            border-left: 4px solid #4CAF50;
-            background-color: white;
-            border-radius: 4px;
-            animation: slideIn 0.3s ease-out;
+        .message {
+            margin-bottom: 20px;
+            animation: fadeIn 0.3s ease-in;
         }
-        @keyframes slideIn {
+        @keyframes fadeIn {
             from {
                 opacity: 0;
-                transform: translateX(-10px);
+                transform: translateY(10px);
             }
             to {
                 opacity: 1;
-                transform: translateX(0);
+                transform: translateY(0);
             }
         }
-        .event-type {
-            font-weight: bold;
-            color: #4CAF50;
+        .message-user {
+            display: flex;
+            justify-content: flex-end;
+        }
+        .message-user .message-content {
+            background: #667eea;
+            color: white;
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px 18px 4px 18px;
+            word-wrap: break-word;
+        }
+        .message-assistant {
+            display: flex;
+            justify-content: flex-start;
+        }
+        .message-assistant .message-content {
+            background: white;
+            color: #333;
+            max-width: 85%;
+            padding: 16px;
+            border-radius: 18px 18px 18px 4px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            word-wrap: break-word;
+            line-height: 1.6;
+        }
+        .message-content pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        .message-content code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        .typing-indicator {
+            display: none;
+            align-items: center;
+            gap: 5px;
+            padding: 12px 16px;
+            background: white;
+            border-radius: 18px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            max-width: 70px;
+        }
+        .typing-indicator.active {
+            display: flex;
+        }
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: #667eea;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+        .typing-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        .typing-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.7;
+            }
+            30% {
+                transform: translateY(-10px);
+                opacity: 1;
+            }
+        }
+        .event-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .event-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
             text-transform: uppercase;
+            letter-spacing: 0.5px;
+            animation: popIn 0.2s ease-out;
+        }
+        @keyframes popIn {
+            from {
+                transform: scale(0.8);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        .badge-start { background: #e3f2fd; color: #1976d2; }
+        .badge-planning { background: #fff3e0; color: #f57c00; }
+        .badge-routing { background: #f3e5f5; color: #7b1fa2; }
+        .badge-calculation { background: #e8f5e9; color: #388e3c; }
+        .badge-conversion { background: #fff9c4; color: #f57f17; }
+        .badge-complete { background: #c8e6c9; color: #2e7d32; }
+        .badge-error { background: #ffcdd2; color: #c62828; }
+        .chat-input-container {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+        .input-wrapper {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        #messageInput {
+            flex: 1;
+            padding: 14px 18px;
+            border: 2px solid #e0e0e0;
+            border-radius: 25px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        #messageInput:focus {
+            border-color: #667eea;
+        }
+        .send-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 25px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .send-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .send-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .clear-button {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .clear-button:hover {
+            background: #da190b;
+        }
+        .streaming-text {
+            display: inline;
+        }
+        .cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            background: #667eea;
+            margin-left: 2px;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        .final-response {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f0f7ff;
+            border-left: 4px solid #667eea;
+            border-radius: 8px;
+        }
+        .final-response-label {
             font-size: 12px;
+            font-weight: bold;
+            color: #667eea;
+            text-transform: uppercase;
+            margin-bottom: 8px;
         }
-        .event-node {
-            color: #666;
-            font-size: 14px;
-            font-style: italic;
-        }
-        .event-message {
-            margin-top: 8px;
+        .final-response-text {
             color: #333;
             line-height: 1.6;
         }
-        .event-timestamp {
-            font-size: 11px;
-            color: #999;
-            margin-top: 5px;
+        ::-webkit-scrollbar {
+            width: 8px;
         }
-        .chunk {
-            display: inline;
-            color: #333;
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
         }
-        .error {
-            border-left-color: #f44336;
+        ::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 4px;
         }
-        .error .event-type {
-            color: #f44336;
-        }
-        .complete {
-            border-left-color: #2196F3;
-        }
-        .complete .event-type {
-            color: #2196F3;
-        }
-        .status {
-            text-align: center;
-            padding: 10px;
-            margin-top: 10px;
-            border-radius: 5px;
-            font-weight: bold;
-        }
-        .status.streaming {
-            background-color: #fff3cd;
-            color: #856404;
-        }
-        .status.complete {
-            background-color: #d4edda;
-            color: #155724;
-        }
-        .status.error {
-            background-color: #f8d7da;
-            color: #721c24;
+        ::-webkit-scrollbar-thumb:hover {
+            background: #5568d3;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🚀 LangGraph4j Streaming Demo</h1>
-
-        <div class="input-group">
-            <label for="query">Enter your query:</label>
-            <input type="text" id="query" placeholder="e.g., Calculate the average of 20, 25, 30 and convert to Fahrenheit"
-                   value="Calculate the average of 74, 34.5, 56, 12.1 these temperatures in Celsius and convert the result to Fahrenheit">
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>🤖 LangGraph4j AI Assistant</h1>
+            <p>Powered by LLM-driven workflow orchestration with real-time streaming</p>
         </div>
 
-        <div>
-            <button onclick="streamWorkflow()">🌊 Stream Workflow Events</button>
-            <button onclick="streamSimpleChat()" class="btn-secondary">💬 Stream Simple Chat</button>
-            <button onclick="clearOutput()" style="background-color: #f44336;">🗑️ Clear</button>
+        <div class="chat-messages" id="chatMessages">
+            <div class="message message-assistant">
+                <div class="message-content">
+                    👋 Hello! I'm your AI assistant powered by LangGraph4j. I can help you with:
+                    <br><br>
+                    • Mathematical calculations (sum, average, etc.)<br>
+                    • Temperature conversions (Celsius to Fahrenheit)<br>
+                    • General questions and explanations<br>
+                    <br>
+                    Try asking: <i>"Calculate the average of 20, 25, 30 and convert to Fahrenheit"</i>
+                </div>
+            </div>
         </div>
 
-        <div id="status"></div>
-        <div id="output"></div>
+        <div class="chat-input-container">
+            <div class="input-wrapper">
+                <input
+                    type="text"
+                    id="messageInput"
+                    placeholder="Type your message here..."
+                    autocomplete="off"
+                />
+                <button class="send-button" id="sendButton" onclick="sendMessage()">
+                    Send 🚀
+                </button>
+                <button class="clear-button" onclick="clearChat()">Clear</button>
+            </div>
+        </div>
     </div>
 
     <script>
         const API_BASE = 'http://localhost:8080/api/langgraph';
+        let isStreaming = false;
+        let currentMessageElement = null;
+        let currentStreamingTextElement = null;
+        let currentEventsContainer = null;
+        let finalResponseText = '';
+        let eventTypes = new Set();
 
-        function setStatus(message, type) {
-            const status = document.getElementById('status');
-            status.className = `status ${type}`;
-            status.textContent = message;
+        function addUserMessage(text) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message message-user';
+            messageDiv.innerHTML = `<div class="message-content">${escapeHtml(text)}</div>`;
+            messagesContainer.appendChild(messageDiv);
+            scrollToBottom();
         }
 
-        function clearOutput() {
-            document.getElementById('output').innerHTML = '';
-            document.getElementById('status').innerHTML = '';
+        function createAssistantMessage() {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message message-assistant';
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+
+            const streamingDiv = document.createElement('div');
+            streamingDiv.className = 'streaming-text';
+            contentDiv.appendChild(streamingDiv);
+
+            const cursor = document.createElement('span');
+            cursor.className = 'cursor';
+            contentDiv.appendChild(cursor);
+
+            const eventsDiv = document.createElement('div');
+            eventsDiv.className = 'event-badges';
+            contentDiv.appendChild(eventsDiv);
+
+            messageDiv.appendChild(contentDiv);
+            messagesContainer.appendChild(messageDiv);
+
+            currentMessageElement = messageDiv;
+            currentStreamingTextElement = streamingDiv;
+            currentEventsContainer = eventsDiv;
+
+            scrollToBottom();
+            return { messageDiv, streamingDiv, eventsDiv };
         }
 
-        function addEvent(event) {
-            const output = document.getElementById('output');
-            const eventDiv = document.createElement('div');
-            eventDiv.className = `event ${event.type.toLowerCase()}`;
+        function addEventBadge(eventType) {
+            if (!currentEventsContainer || eventTypes.has(eventType)) return;
 
-            const timestamp = new Date(event.timestamp).toLocaleTimeString();
+            eventTypes.add(eventType);
+            const badge = document.createElement('span');
+            badge.className = `event-badge badge-${eventType.toLowerCase()}`;
+            badge.textContent = eventType.replace('_', ' ');
+            currentEventsContainer.appendChild(badge);
+        }
 
-            eventDiv.innerHTML = `
-                <div class="event-type">${event.type}</div>
-                <div class="event-node">Node: ${event.nodeName || 'N/A'}</div>
-                <div class="event-message">${event.message || ''}</div>
-                <div class="event-timestamp">${timestamp}</div>
+        function appendStreamingText(text) {
+            if (currentStreamingTextElement) {
+                currentStreamingTextElement.textContent += text;
+                scrollToBottom();
+            }
+        }
+
+        function finalizeFinalResponse() {
+            if (!currentMessageElement || !finalResponseText) return;
+
+            // Remove cursor
+            const cursor = currentMessageElement.querySelector('.cursor');
+            if (cursor) cursor.remove();
+
+            // Clear streaming text and show final response
+            if (currentStreamingTextElement) {
+                currentStreamingTextElement.innerHTML = '';
+            }
+
+            // Add final response section
+            const finalDiv = document.createElement('div');
+            finalDiv.className = 'final-response';
+            finalDiv.innerHTML = `
+                <div class="final-response-label">✨ Final Response</div>
+                <div class="final-response-text">${formatResponse(finalResponseText)}</div>
             `;
 
-            output.appendChild(eventDiv);
-            output.scrollTop = output.scrollHeight;
+            currentMessageElement.querySelector('.message-content').insertBefore(
+                finalDiv,
+                currentEventsContainer
+            );
+
+            scrollToBottom();
         }
 
-        function addChunk(text) {
-            const output = document.getElementById('output');
-            let chunkContainer = output.querySelector('.chunk-container');
-
-            if (!chunkContainer) {
-                chunkContainer = document.createElement('div');
-                chunkContainer.className = 'event';
-                chunkContainer.innerHTML = '<div class="event-type">STREAMING RESPONSE</div><div class="chunk"></div>';
-                output.appendChild(chunkContainer);
-            }
-
-            const chunkSpan = chunkContainer.querySelector('.chunk');
-            chunkSpan.textContent += text;
-            output.scrollTop = output.scrollHeight;
+        function formatResponse(text) {
+            // Convert markdown-like formatting to HTML
+            return escapeHtml(text)
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/\n/g, '<br>');
         }
 
-        async function streamWorkflow() {
-            const query = document.getElementById('query').value;
-            if (!query.trim()) {
-                alert('Please enter a query');
-                return;
-            }
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
 
-            clearOutput();
-            setStatus('🌊 Streaming workflow events...', 'streaming');
+        function scrollToBottom() {
+            const messagesContainer = document.getElementById('chatMessages');
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function clearChat() {
+            const messagesContainer = document.getElementById('chatMessages');
+            messagesContainer.innerHTML = '';
+            finalResponseText = '';
+            eventTypes.clear();
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+
+            if (!message || isStreaming) return;
+
+            // Add user message
+            addUserMessage(message);
+            input.value = '';
+
+            // Create assistant message container
+            createAssistantMessage();
+            finalResponseText = '';
+            eventTypes.clear();
+
+            // Disable input
+            isStreaming = true;
+            document.getElementById('sendButton').disabled = true;
+            input.disabled = true;
 
             try {
                 const response = await fetch(`${API_BASE}/stream`, {
@@ -230,7 +461,7 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        query: query,
+                        query: message,
                         role: 'user'
                     })
                 });
@@ -246,10 +477,7 @@
                 while (true) {
                     const { done, value } = await reader.read();
 
-                    if (done) {
-                        setStatus('✅ Streaming complete!', 'complete');
-                        break;
-                    }
+                    if (done) break;
 
                     buffer += decoder.decode(value, { stream: true });
 
@@ -263,10 +491,21 @@
                                 const jsonStr = eventStr.substring(5).trim();
                                 const event = JSON.parse(jsonStr);
 
+                                // Add event badge
+                                addEventBadge(event.type);
+
+                                // Handle different event types
                                 if (event.type === 'CHUNK') {
-                                    addChunk(event.message);
-                                } else {
-                                    addEvent(event);
+                                    appendStreamingText(event.message);
+                                    finalResponseText += event.message;
+                                } else if (event.type === 'COMPLETE') {
+                                    // Show final response
+                                    if (event.data && event.data.workflowState && event.data.workflowState.finalAnswer) {
+                                        finalResponseText = event.data.workflowState.finalAnswer;
+                                    }
+                                    finalizeFinalResponse();
+                                } else if (event.type === 'ERROR') {
+                                    appendStreamingText('\n\n❌ Error: ' + event.message);
                                 }
                             } catch (e) {
                                 console.error('Error parsing event:', e, eventStr);
@@ -276,60 +515,33 @@
                 }
             } catch (error) {
                 console.error('Streaming error:', error);
-                setStatus('❌ Error: ' + error.message, 'error');
-                addEvent({
-                    type: 'ERROR',
-                    nodeName: 'system',
-                    message: error.message,
-                    timestamp: Date.now()
-                });
-            }
-        }
-
-        async function streamSimpleChat() {
-            const query = document.getElementById('query').value;
-            if (!query.trim()) {
-                alert('Please enter a query');
-                return;
-            }
-
-            clearOutput();
-            setStatus('💬 Streaming token by token...', 'streaming');
-
-            try {
-                const response = await fetch(`${API_BASE}/chat/stream?message=${encodeURIComponent(query)}`);
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                appendStreamingText('\n\n❌ Error: ' + error.message);
+            } finally {
+                // Remove cursor
+                if (currentMessageElement) {
+                    const cursor = currentMessageElement.querySelector('.cursor');
+                    if (cursor) cursor.remove();
                 }
 
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-
-                while (true) {
-                    const { done, value } = await reader.read();
-
-                    if (done) {
-                        setStatus('✅ Streaming complete!', 'complete');
-                        break;
-                    }
-
-                    const text = decoder.decode(value, { stream: true });
-                    addChunk(text);
-                }
-            } catch (error) {
-                console.error('Streaming error:', error);
-                setStatus('❌ Error: ' + error.message, 'error');
+                // Re-enable input
+                isStreaming = false;
+                document.getElementById('sendButton').disabled = false;
+                input.disabled = false;
+                input.focus();
             }
         }
 
         // Add keyboard support
-        document.getElementById('query').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                streamWorkflow();
+        document.getElementById('messageInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !isStreaming) {
+                sendMessage();
             }
         });
+
+        // Focus input on load
+        window.onload = () => {
+            document.getElementById('messageInput').focus();
+        };
     </script>
 </body>
 </html>
-
