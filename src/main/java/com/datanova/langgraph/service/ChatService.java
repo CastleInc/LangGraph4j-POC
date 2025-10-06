@@ -1,572 +1,413 @@
-package com.datanova.langgraph.service;
+package com.bofa.cstai.penpal.services.impl;
 
-import com.datanova.langgraph.model.ChatResponse;
-import com.datanova.langgraph.model.StreamEvent;
-import com.datanova.langgraph.orchestrator.LangGraphOrchestrator;
+import com.bofa.cstai.penpal.configuration.ApplicationProperties;
+import com.bofa.cstai.penpal.model.*;
+import com.bofa.cstai.penpal.model.conversation.UserQuery;
+import com.bofa.cstai.penpal.model.message.ChatMessage;
+import com.bofa.cstai.penpal.model.message.MessageType;
+import com.bofa.cstai.penpal.model.prompt.PromptRequestContext;
+import com.bofa.cstai.penpal.model.tools.ToolSelection;
+import com.bofa.cstai.penpal.repository.ConversationRepository;
+import com.bofa.cstai.penpal.repository.MessageRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.ChatClientResponse;
+import org.springframework.ai.chat.prompt.ChatOptions;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.api.OpenAiApi;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 import reactor.core.publisher.Flux;
+import com.bofa.cstai.penpal.services.IChatService;
+
+// === AIT LANGGRAPH INTEGRATION ===
+import com.datanova.langgraph.orchestrator.AITOrchestrator;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * ChatService acts as an intelligent decision layer for query processing.
+ * Handles chat operations such as streaming responses to user queries,
+ * managing chat messages, and integrating with tools and knowledge base services.
  *
- * <p>This service uses the LLM to determine whether a user query requires the complex agentic workflow
- * or can be answered directly. The LLM also extracts any necessary numerical data from the query.</p>
- *
- * <p>Decision criteria (determined by LLM):</p>
- * <ul>
- *   <li><b>Direct LLM response</b> - For general questions, explanations, or queries that don't require computations</li>
- *   <li><b>Agentic tool flow</b> - For queries requiring mathematical operations, temperature conversions, or multi-step processing</li>
- * </ul>
- *
- * <p>The entire decision-making process is LLM-driven with no hardcoded rules or regex patterns.</p>
- *
- * @author DataNova
- * @version 1.0
- * @see LangGraphOrchestrator
+ * ENHANCED: Integrated with AIT Langgraph workflow for tech stack queries.
  */
-@Slf4j
+
 @Service
-public class ChatService {
+@Slf4j
+public class ChatService implements IChatService {
 
+    @Autowired
+    private ApplicationProperties properties;
+
+    private static final String STOP = "STOP";
+    private static final String RETURN_DIRECT = "returnDirect";
+    private static final String FINAL_QUESTION_SYSTEM_TOOLS_PROMPT = "FINAL_QUESTION_SYSTEM_TOOLS_PROMPT";
+    private static final String FINAL_QUESTION_SYSTEM_PROMPT = "FINAL_QUESTION_SYSTEM_PROMPT";
+    private static final TreeSet<String> STOP_REASONS = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+    private static final String TOKEN = "token";
+    private static final String FINISH_REASON = "finish_reason";
+    private static final String DONE = "done";
+    private static final String QUERY_CONTEXT = "query_context";
+    public List<ToolCallback> toolCallbacks;
+
+    private final SummarizationService summarizationService;
+    private final PromptConfigService promptConfigService;
+    private final ToolSelectionService toolSelectionService;
     private final ChatClient chatClient;
-    private final LangGraphOrchestrator orchestrator;
+    private final RestTemplate promptRestTemplate;
+    private final ApplicationProperties applicationProperties;
+    private final ObjectMapper loggingObjectMapper = new ObjectMapper();
+    private final KnowledgeBaseService knowledgeBaseService;
+    private final ConversationService conversationService;
+    private final PromptCreationService promptCreationService;
+    private final MessageRepository messageRepository;
+    private final ConversationRepository conversationRepository;
 
-    /**
-     * Constructor for dependency injection.
-     *
-     * @param chatClientBuilder the ChatClient builder for LLM interaction
-     * @param orchestrator the workflow orchestrator for complex queries
-     */
-    public ChatService(ChatClient.Builder chatClientBuilder, LangGraphOrchestrator orchestrator) {
-        this.chatClient = chatClientBuilder.build();
-        this.orchestrator = orchestrator;
-        log.info("ChatService initialized with streaming support");
-    }
+    // === AIT LANGGRAPH INTEGRATION ===
+    private final AITOrchestrator aitOrchestrator;
 
-    /**
-     * Processes a user query by using LLM to decide the appropriate processing path.
-     *
-     * <p>This method uses the LLM to:</p>
-     * <ul>
-     *   <li>Analyze the query and determine if tools are needed</li>
-     *   <li>Extract any numerical data if required for computations</li>
-     *   <li>Provide reasoning for the decision</li>
-     * </ul>
-     *
-     * @param query the user's natural language query
-     * @param role the role of the message sender (user, assistant, system)
-     * @return ChatResponse containing the answer, decision rationale, and processing metadata
-     * @throws Exception if workflow execution fails
-     */
-    public ChatResponse processQuery(String query, String role) throws Exception {
-        log.info("Processing query: '{}' with role: '{}'", query, role);
+    public ChatService(SummarizationService summarizationService,
+                       PromptConfigService promptConfigService,
+                       ToolSelectionService toolSelectionService,
+                       ChatClient chatClient,
+                       @Qualifier("promptRestTemplate") RestTemplate promptRestTemplate,
+                       ApplicationProperties applicationProperties,
+                       @Autowired(required = false) List<ToolCallback> toolCallbacks,
+                       ConversationService conversationService,
+                       PromptCreationService promptCreationService,
+                       MessageRepository messageRepository,
+                       ConversationRepository conversationRepository,
+                       @Autowired(required = false) AITOrchestrator aitOrchestrator) {  // <-- NEW: AIT Orchestrator
 
-        // Let LLM analyze the query and decide the routing with data extraction
-        RouteDecision decision = analyzeQueryAndDecideRoute(query);
+        this.summarizationService = summarizationService;
+        this.promptConfigService = promptConfigService;
+        this.toolSelectionService = toolSelectionService;
+        this.promptRestTemplate = promptRestTemplate;
+        this.chatClient = chatClient;
+        this.applicationProperties = applicationProperties;
+        this.knowledgeBaseService = new KnowledgeBaseService(promptRestTemplate, applicationProperties);
+        this.toolCallbacks = toolCallbacks;
+        this.conversationService = conversationService;
+        this.promptCreationService = promptCreationService;
+        this.messageRepository = messageRepository;
+        this.conversationRepository = conversationRepository;
 
-        log.info("Route decision: {} - {}", decision.shouldUseTool() ? "TOOL_FLOW" : "DIRECT_LLM", decision.getReason());
-        if (decision.shouldUseTool() && !decision.getNumbers().isEmpty()) {
-            log.debug("LLM extracted {} numbers: {}", decision.getNumbers().size(), decision.getNumbers());
-        }
-
-        if (decision.shouldUseTool()) {
-            // Route to agentic workflow with LLM-extracted data
-            return executeToolFlow(query, decision.getNumbers(), decision, role);
+        // === AIT LANGGRAPH INTEGRATION ===
+        this.aitOrchestrator = aitOrchestrator;
+        if (aitOrchestrator != null) {
+            log.info("ChatService initialized with AIT Langgraph integration");
         } else {
-            // Get direct answer from LLM
-            return getDirectLLMResponse(query, decision, role);
-        }
-    }
-
-    /**
-     * Streams workflow execution with real-time event updates.
-     *
-     * <p>Returns a Flux of StreamEvent objects that provide live updates:
-     * - Workflow start and initialization
-     * - Planning phase with token-by-token plan generation
-     * - Routing decisions with reasoning
-     * - Execution results from each node
-     * - Token-by-token final answer streaming
-     * - Completion with full state
-     * </p>
-     *
-     * @param query user's query
-     * @param role message role
-     * @return Flux of StreamEvent objects
-     */
-    public Flux<StreamEvent> processQueryStream(String query, String role) {
-        log.info("Starting streaming query processing: '{}'", query);
-
-        return Flux.defer(() -> {
-            try {
-                // Emit START event
-                return Flux.concat(
-                    Flux.just(StreamEvent.builder()
-                        .type(StreamEvent.EventType.START)
-                        .nodeName("system")
-                        .message("Analyzing query and determining processing strategy...")
-                        .timestamp(System.currentTimeMillis())
-                        .build()),
-
-                    // Analyze query with LLM
-                    analyzeQueryStream(query),
-
-                    // Execute workflow or direct response
-                    executeStreamingWorkflow(query, role)
-                );
-            } catch (Exception e) {
-                log.error("Error in streaming query processing", e);
-                return Flux.just(StreamEvent.builder()
-                    .type(StreamEvent.EventType.ERROR)
-                    .nodeName("system")
-                    .message("Error: " + e.getMessage())
-                    .timestamp(System.currentTimeMillis())
-                    .build());
-            }
-        });
-    }
-
-    /**
-     * Analyzes query and emits routing decision event.
-     */
-    private Flux<StreamEvent> analyzeQueryStream(String query) {
-        return Flux.defer(() -> {
-            RouteDecision decision = analyzeQueryAndDecideRoute(query);
-
-            return Flux.just(StreamEvent.builder()
-                .type(StreamEvent.EventType.ROUTE_DECISION)
-                .nodeName("analyzer")
-                .message(decision.getReason())
-                .data(Map.of(
-                    "decision", decision.shouldUseTool() ? "TOOL_FLOW" : "DIRECT_ANSWER",
-                    "numbers", decision.getNumbers()
-                ))
-                .timestamp(System.currentTimeMillis())
-                .build());
-        });
-    }
-
-    /**
-     * Executes workflow with streaming events.
-     */
-    private Flux<StreamEvent> executeStreamingWorkflow(String query, String role) {
-        return Flux.defer(() -> {
-            RouteDecision decision = analyzeQueryAndDecideRoute(query);
-
-            if (decision.shouldUseTool()) {
-                return executeToolFlowStream(query, decision.getNumbers());
-            } else {
-                return streamDirectLLMResponse(query);
-            }
-        });
-    }
-
-    /**
-     * Executes tool flow with streaming updates for each node.
-     */
-    private Flux<StreamEvent> executeToolFlowStream(String query, List<Double> numbers) {
-        return Flux.defer(() -> {
-            try {
-                long startTime = System.currentTimeMillis();
-
-                // Emit workflow start
-                Flux<StreamEvent> startEvent = Flux.just(StreamEvent.builder()
-                    .type(StreamEvent.EventType.PLANNING)
-                    .nodeName("planner")
-                    .message("Creating execution plan...")
-                    .data(Map.of("numbers", numbers))
-                    .timestamp(System.currentTimeMillis())
-                    .build());
-
-                // Execute workflow
-                Map<String, Object> workflowResult = orchestrator.executeGraph(query, numbers);
-
-                // Stream events from execution trace
-                @SuppressWarnings("unchecked")
-                List<Map<String, Object>> trace = (List<Map<String, Object>>) workflowResult.get("executionTrace");
-
-                Flux<StreamEvent> traceEvents = Flux.fromIterable(trace)
-                    .delayElements(Duration.ofMillis(100))
-                    .map(traceEntry -> {
-                        String nodeName = (String) traceEntry.get("node");
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> state = (Map<String, Object>) traceEntry.get("state");
-
-                        return createEventFromTraceEntry(nodeName, state);
-                    });
-
-                // Stream final answer token by token
-                String finalAnswer = (String) workflowResult.get("finalAnswer");
-                Flux<StreamEvent> answerStream = streamText(finalAnswer, "summarizer");
-
-                // Emit completion event
-                Flux<StreamEvent> completeEvent = Flux.just(StreamEvent.builder()
-                    .type(StreamEvent.EventType.COMPLETE)
-                    .nodeName("system")
-                    .message("Workflow completed successfully")
-                    .data(Map.of(
-                        "executionTimeMs", System.currentTimeMillis() - startTime,
-                        "workflowState", workflowResult
-                    ))
-                    .timestamp(System.currentTimeMillis())
-                    .build());
-
-                return Flux.concat(startEvent, traceEvents, answerStream, completeEvent);
-
-            } catch (Exception e) {
-                log.error("Error in tool flow stream", e);
-                return Flux.just(StreamEvent.builder()
-                    .type(StreamEvent.EventType.ERROR)
-                    .nodeName("system")
-                    .message("Error: " + e.getMessage())
-                    .timestamp(System.currentTimeMillis())
-                    .build());
-            }
-        });
-    }
-
-    /**
-     * Creates StreamEvent from execution trace entry.
-     */
-    private StreamEvent createEventFromTraceEntry(String nodeName, Map<String, Object> state) {
-        StreamEvent.EventType eventType;
-        String message;
-
-        switch (nodeName) {
-            case "__START__":
-                eventType = StreamEvent.EventType.START;
-                message = "Workflow initialized with query and numbers";
-                break;
-            case "planner":
-                eventType = StreamEvent.EventType.PLAN_COMPLETE;
-                message = "Execution plan created: " + (state.get("plan") != null ?
-                    state.get("plan").toString().substring(0, Math.min(100, state.get("plan").toString().length())) + "..."
-                    : "");
-                break;
-            case "router":
-                eventType = StreamEvent.EventType.ROUTE_DECISION;
-                message = "Router decision: " + state.get("routerDecision");
-                break;
-            case "math_executor":
-                eventType = StreamEvent.EventType.CALCULATION;
-                message = String.format("Calculated sum=%.2f, average=%.2f",
-                    state.get("sum"), state.get("average"));
-                break;
-            case "temperature_converter":
-                eventType = StreamEvent.EventType.CONVERSION;
-                message = String.format("Converted to %.2f°F", state.get("fahrenheit"));
-                break;
-            case "summarizer":
-                eventType = StreamEvent.EventType.SUMMARIZING;
-                message = "Generating final summary...";
-                break;
-            default:
-                eventType = StreamEvent.EventType.EXECUTING;
-                message = "Executing " + nodeName;
+            log.info("ChatService initialized without AIT Langgraph (orchestrator not available)");
         }
 
-        return StreamEvent.builder()
-            .type(eventType)
-            .nodeName(nodeName)
-            .message(message)
-            .data(state)
-            .timestamp(System.currentTimeMillis())
-            .build();
+        STOP_REASONS.addAll(List.of(
+                OpenAiApi.ChatCompletionFinishReason.STOP.name(),
+                OpenAiApi.ChatCompletionFinishReason.TOOL_CALL.name(),
+                OpenAiApi.ChatCompletionFinishReason.LENGTH.name(),
+                OpenAiApi.ChatCompletionFinishReason.TOOL_CALLS.name(),
+                RETURN_DIRECT
+        ));
     }
 
     /**
-     * Streams LLM response token by token.
+     * Streams chat responses for a given user query and user ID.
+     * Handles clarification, tool selection, and knowledge base integration,
+     * emitting response tokens as a reactive Flux.
+     *
+     * ENHANCED: Now detects and routes AIT queries to dedicated Langgraph workflow.
      */
-    private Flux<StreamEvent> streamDirectLLMResponse(String query) {
-        return chatClient.prompt()
-            .user(query)
-            .stream()
-            .content()
-            .map(token -> StreamEvent.builder()
-                .type(StreamEvent.EventType.CHUNK)
-                .nodeName("llm")
-                .message(token)
-                .timestamp(System.currentTimeMillis())
-                .build())
-            .concatWith(Flux.just(StreamEvent.builder()
-                .type(StreamEvent.EventType.COMPLETE)
-                .nodeName("system")
-                .message("Direct response completed")
-                .timestamp(System.currentTimeMillis())
-                .build()));
-    }
+    public Flux<ResponseChunk> streamResponse(UserQuery userQuery, String userId) {
 
-    /**
-     * Streams text token by token as events.
-     */
-    private Flux<StreamEvent> streamText(String text, String nodeName) {
-        if (text == null || text.isEmpty()) {
-            return Flux.empty();
+        final String conversationId = StringUtils.defaultIfBlank(userQuery.getConversationId(), UUID.randomUUID().toString());
+
+        // === NEW: CHECK FOR AIT QUERY FIRST ===
+        if (aitOrchestrator != null && isAITQuery(userQuery.getQuestion())) {
+            log.info("Detected AIT query, routing to Langgraph workflow: '{}'", userQuery.getQuestion());
+            return handleAITQuery(userQuery, userId, conversationId);
+        }
+        // === END NEW CODE ===
+
+        List<ChatMessage> memoryMessages = Optional.ofNullable(messageRepository.findByConversationId(conversationId))
+                .orElse(new ArrayList<>());
+
+        var tracker = summarizeUserQuery(userQuery, memoryMessages);
+
+        if (tracker.clarificationRequired()) {
+            return Flux.just(getChunk(tracker.clarificationMessage(), STOP, true, conversationId, null, null));
         }
 
-        // Split into words for token simulation
-        String[] words = text.split("\\s+");
+        String questionForRAG = tracker.newTopic() ? userQuery.getQuestion() : tracker.summarisedQuestion();
+        Optional<ToolSelection> optionalToolInvocation = toolSelectionService.getAvailableTool(userQuery, tracker);
 
-        return Flux.fromArray(words)
-            .delayElements(Duration.ofMillis(50))
-            .map(word -> StreamEvent.builder()
-                .type(StreamEvent.EventType.CHUNK)
-                .nodeName(nodeName)
-                .message(word + " ")
-                .timestamp(System.currentTimeMillis())
-                .build());
+        boolean anyThingMissingForToolCall = false;
+        boolean addToolToFinalCall = false;
+        if (optionalToolInvocation.isPresent() && optionalToolInvocation.get().isAnyToolAvailable()) {
+            anyThingMissingForToolCall = CollectionUtils.isNotEmpty(optionalToolInvocation.get().getMissing());
+            if (anyThingMissingForToolCall) {
+                log.warn("Missing information for tool call: {}", optionalToolInvocation.get().getMissing());
+                return Flux.just(getChunk(optionalToolInvocation.get().getMessage(), STOP, true, conversationId, null, null));
+            }
+            addToolToFinalCall = true;
+        }
+
+        var knowledgeBaseResponse = buildAndFetchKnowledgeBaseResponse(userQuery, tracker, addToolToFinalCall);
+
+        PromptRequestContext promptRequestContext = PromptRequestContext.builder()
+                .streaming(true)
+                .turnId(UUID.randomUUID().toString())
+                .knowledgeBaseResponse(knowledgeBaseResponse)
+                .memoryMessages(memoryMessages)
+                .userQuery(userQuery)
+                .build();
+
+        Prompt prompt = promptCreationService.create(promptRequestContext);
+
+        if (addToolToFinalCall) {
+            ChatClientResponse response = chatClient.prompt(prompt).call().chatClientResponse();
+            String assistantResponse = response.chatResponse().getOutput().getText();
+            prompt = promptCreationService.promptWithToolResponse(prompt, assistantResponse, promptRequestContext);
+        }
+
+        findFirstAndUpdateConversationTitle(conversationId, tracker);
+
+        StringJoiner fullResponse = new StringJoiner("");
+
+        return chatClient.prompt(prompt)
+                .options(getChatOptions())
+                .stream()
+                .flatMap(response -> {
+                    String content = response.getResult().getOutput().getText();
+                    String finishReason = response.getResult().getOutput().getFinishReason();
+                    if (STOP_REASONS.contains(finishReason)) {
+                        if (RETURN_DIRECT.equalsIgnoreCase(finishReason)) {
+                            content = "";
+                        }
+                        fullResponse.add(content);
+
+                        var assistantMessage = saveAssistantMessage(userId, conversationId, fullResponse.toString()).get();
+                        return Flux.just(getChunk(content, finishReason, true, conversationId, assistantMessage.getId(),
+                                promptRequestContext.getKnowledgeBaseResponse()));
+                    } else {
+                        log.warn("Unknown finish reason from LLM. Treating as incomplete.");
+                        return Flux.just(getChunk(content, finishReason, true, conversationId, null, null));
+                    }
+                });
     }
 
-    /**
-     * Simple token-by-token streaming for direct chat.
-     */
-    public Flux<String> streamDirectChat(String message) {
-        log.info("Streaming direct chat for: {}", message);
-
-        return chatClient.prompt()
-            .user(message)
-            .stream()
-            .content();
-    }
+    // ========================= AIT LANGGRAPH INTEGRATION METHODS =========================
 
     /**
-     * Uses the LLM to analyze the query, decide routing, and extract any necessary data.
-     *
-     * <p>This method sends a comprehensive prompt to the LLM that asks it to:</p>
-     * <ul>
-     *   <li>Understand the user's intent</li>
-     *   <li>Determine if computational tools are needed</li>
-     *   <li>Extract numerical data if present and relevant</li>
-     *   <li>Provide clear reasoning for the decision</li>
-     * </ul>
-     *
-     * <p>This is a fully LLM-driven approach with no hardcoded rules.</p>
-     *
-     * @param query the user's query
-     * @return RouteDecision containing the routing decision, extracted numbers, and reasoning
+     * Uses LLM to intelligently detect if a query is related to AIT tech stack.
+     * LLM-driven detection is more flexible and accurate than pattern matching.
      */
-    private RouteDecision analyzeQueryAndDecideRoute(String query) {
-        log.debug("Using LLM to analyze query and decide routing...");
+    private boolean isAITQuery(String question) {
+        if (question == null || question.trim().isEmpty()) {
+            return false;
+        }
 
-        String prompt = """
-                You are an intelligent query analyzer and router. Your task is to analyze the user's query and make two decisions:
+        try {
+            String prompt = String.format("""
+                You are an intelligent query classifier. Your task is to determine if a user query is related to 
+                AIT (Application Information Technology) tech stacks or should be handled through the regular flow.
                 
-                1. **Routing Decision**: Determine if the query needs computational tools or can be answered directly
-                2. **Data Extraction**: If tools are needed, extract any numerical data from the query
+                USER QUERY: "%s"
                 
-                User Query: "%s"
+                AIT Query Characteristics:
+                - Asks about specific AIT IDs or application IDs (e.g., "AIT 74563", "application 12345")
+                - Queries about technologies/frameworks/databases/languages used by AITs or applications
+                - Questions like "which AITs use Java", "applications with MongoDB", "tech stack for AIT"
+                - Asks about infrastructure, middleware, or tech components of specific applications
                 
-                Available Tool Capabilities:
-                - Mathematical operations (sum, average, calculations)
-                - Temperature conversion (Celsius to Fahrenheit)
-                - CVE database queries (vulnerabilities by year, score, CVE ID)
-                - AIT tech stack queries (applications by technology, framework, language, database)
-                - Multi-step computational workflows
+                NOT AIT Queries:
+                - General questions about technologies (e.g., "What is Java?", "How does MongoDB work?")
+                - Concept explanations or tutorials
+                - General discussion about frameworks without asking about specific applications
+                - Any query that doesn't involve querying application tech stacks
                 
-                Analysis Guidelines:
+                Examples:
                 
-                **USE TOOLS if:**
-                - Query explicitly asks for calculations (sum, average, mean, etc.)
-                - Query requires temperature conversion
-                - Query needs processing of multiple numerical values
-                - Query asks to "calculate", "compute", "convert", "find the average", etc.
-                - Query asks about CVE vulnerabilities, security issues, CVE IDs
-                - Query asks about AITs, applications, tech stack, technologies used by applications
-                - Query mentions "which AITs use", "applications with", "tech stack for AIT"
-                - IMPORTANT: "AITs" means Application IDs (not AI technologies)
+                AIT Query: "Give me AITs using Java and MongoDB" → YES
+                AIT Query: "What technologies does AIT 74563 use?" → YES
+                AIT Query: "Applications with Spring Boot framework" → YES
+                AIT Query: "Show me tech stack for application 12345" → YES
+                AIT Query: "Which applications use PostgreSQL database" → YES
                 
-                **DIRECT ANSWER if:**
-                - Query is conversational or asks for explanation
-                - Query is about concepts, definitions, or general knowledge
-                - Query asks "what is", "how does", "explain", etc.
-                - No actual computation or database query is requested
+                NOT AIT Query: "What is Java?" → NO
+                NOT AIT Query: "How does Spring Boot work?" → NO
+                NOT AIT Query: "Explain MongoDB advantages" → NO
+                NOT AIT Query: "What's the difference between Java and Python?" → NO
                 
-                **Data Extraction Rules:**
-                - If using tools, extract all relevant numbers from the query
-                - Only extract numbers that are data to be processed (not years, dates, or contextual numbers)
-                - If no numbers are present but computation/query is requested, return empty list
+                Analyze the user query and respond with ONLY one word:
+                - "YES" if it's an AIT tech stack query
+                - "NO" if it should go through the regular flow
                 
-                Respond in this EXACT format:
-                DECISION: [USE_TOOLS or DIRECT_ANSWER]
-                NUMBERS: [comma-separated list of numbers, or "NONE" if no numbers to extract]
-                REASON: [Brief explanation of your decision and what you understood from the query]
-                
-                Example 1:
-                Query: "Calculate the average of 20, 25, 30 degrees Celsius and convert to Fahrenheit"
-                DECISION: USE_TOOLS
-                NUMBERS: 20, 25, 30
-                REASON: Query explicitly requests calculation (average) and conversion with specific temperature values.
-                
-                Example 2:
-                Query: "What is the difference between Celsius and Fahrenheit?"
-                DECISION: DIRECT_ANSWER
-                NUMBERS: NONE
-                REASON: Query asks for explanation of concepts, not requesting any calculation.
-                
-                Example 3:
-                Query: "What AITs use Java and Spring Boot"
-                DECISION: USE_TOOLS
-                NUMBERS: NONE
-                REASON: Query asks about AIT tech stack - needs to query database for applications using Java/Spring Boot.
-                
-                Example 4:
-                Query: "Give me CVEs from 2021 with score above 7"
-                DECISION: USE_TOOLS
-                NUMBERS: NONE
-                REASON: Query asks about CVE vulnerabilities - needs to query CVE database.
-                
-                Example 5:
-                Query: "In 2024, what is machine learning?"
-                DECISION: DIRECT_ANSWER
-                NUMBERS: NONE
-                REASON: Query is about explaining a concept. The number 2024 is a year, not data to process.
-                
-                Now analyze the user's query and respond:
-                """.formatted(query);
+                Response (YES or NO):
+                """, question);
 
-        String response = chatClient.prompt()
+            String llmResponse = chatClient.prompt()
                 .user(prompt)
                 .call()
                 .content();
 
-        log.debug("LLM analysis response: {}", response);
+            String decision = llmResponse.trim().toUpperCase();
+            boolean isAIT = decision.startsWith("YES");
 
-        return parseRouteDecision(response);
+            log.info("LLM AIT Detection for '{}': {} (raw: '{}')", question, isAIT, llmResponse);
+
+            return isAIT;
+
+        } catch (Exception e) {
+            log.error("Error in LLM-based AIT detection, falling back to false", e);
+            return false;
+        }
     }
 
     /**
-     * Parses the LLM's routing decision and extracted data.
-     *
-     * @param response the LLM's response
-     * @return RouteDecision object with the decision, extracted numbers, and reasoning
+     * Handles AIT query by routing to Langgraph workflow and streaming the response.
+     * Maintains consistency with your existing streaming pattern.
      */
-    private RouteDecision parseRouteDecision(String response) {
-        boolean useTool = response.toUpperCase().contains("USE_TOOLS");
-        List<Double> numbers = new ArrayList<>();
-        String reason = "";
+    private Flux<ResponseChunk> handleAITQuery(UserQuery userQuery, String userId, String conversationId) {
+        AtomicReference<String> fullResponse = new AtomicReference<>("");
 
-        // Extract numbers from LLM response
-        if (response.contains("NUMBERS:")) {
-            String numbersLine = response.substring(response.indexOf("NUMBERS:") + 8);
-            numbersLine = numbersLine.substring(0, numbersLine.indexOf("\n")).trim();
+        return Flux.defer(() -> {
+            try {
+                log.info("Executing AIT Langgraph workflow for: '{}'", userQuery.getQuestion());
 
-            if (!numbersLine.equalsIgnoreCase("NONE") && !numbersLine.isEmpty()) {
-                String[] numberStrings = numbersLine.split(",");
-                for (String numStr : numberStrings) {
-                    try {
-                        numbers.add(Double.parseDouble(numStr.trim()));
-                    } catch (NumberFormatException e) {
-                        log.debug("Could not parse number from LLM response: {}", numStr);
-                    }
+                // Execute AIT workflow
+                Map<String, Object> aitResult = aitOrchestrator.executeAITWorkflow(userQuery.getQuestion());
+                String finalAnswer = (String) aitResult.get("finalAnswer");
+
+                if (finalAnswer == null || finalAnswer.isEmpty()) {
+                    finalAnswer = "No results found for the AIT query.";
                 }
+
+                fullResponse.set(finalAnswer);
+
+                // Stream the response line by line for better UX (similar to your existing pattern)
+                String[] lines = finalAnswer.split("\n");
+
+                return Flux.fromArray(lines)
+                    .delayElements(Duration.ofMillis(30))
+                    .map(line -> {
+                        // Stream each line as a chunk
+                        return getChunk(line + "\n", null, false, conversationId, null, null);
+                    })
+                    .concatWith(Flux.defer(() -> {
+                        // Final chunk with STOP reason - save message here
+                        String fullText = fullResponse.get();
+                        log.info("AIT Langgraph workflow completed ({} chars). Saving message.", fullText.length());
+
+                        var assistantMessage = saveAssistantMessage(userId, conversationId, fullText).orElse(null);
+                        String messageId = assistantMessage != null ? assistantMessage.getId() : null;
+
+                        // Update conversation title if first message
+                        findFirstAndUpdateAITConversationTitle(conversationId);
+
+                        return Flux.just(getChunk("", STOP, true, conversationId, messageId, null));
+                    }));
+
+            } catch (Exception e) {
+                log.error("Error executing AIT Langgraph workflow", e);
+                String errorMessage = "Error processing AIT query: " + e.getMessage();
+                return Flux.just(getChunk(errorMessage, STOP, true, conversationId, null, null));
             }
-        }
-
-        // Extract reason
-        if (response.contains("REASON:")) {
-            reason = response.substring(response.indexOf("REASON:") + 7).trim();
-        }
-
-        return new RouteDecision(useTool, numbers, reason);
+        });
     }
 
     /**
-     * Executes the agentic tool workflow for complex queries.
-     *
-     * @param query the user's query
-     * @param numbers the numerical data extracted by LLM
-     * @param decision the routing decision
-     * @param role the role of the message sender
-     * @return ChatResponse with workflow results
-     * @throws Exception if workflow execution fails
+     * Updates conversation title for AIT queries.
      */
-    private ChatResponse executeToolFlow(String query, List<Double> numbers, RouteDecision decision, String role) throws Exception {
-        log.info("Executing agentic tool flow with {} numbers", numbers.size());
+    private void findFirstAndUpdateAITConversationTitle(String conversationId) {
+        if (conversationService.isFirstMessage(conversationId)) {
+            conversationRepository.findById(conversationId).ifPresent(conversation -> {
+                conversation.setConversationTitle("AIT Tech Stack Query");
+                conversation.setDateUpdated(new Date());
+                conversationRepository.save(conversation);
+                log.debug("Updated conversation title for AIT query: {}", conversationId);
+            });
+        }
+    }
 
-        long startTime = System.currentTimeMillis();
-        Map<String, Object> workflowResult = orchestrator.executeGraph(query, numbers);
-        long executionTime = System.currentTimeMillis() - startTime;
+    // ========================= ORIGINAL HELPER METHODS =========================
 
-        String finalAnswer = (String) workflowResult.get("finalAnswer");
+    private UserQuestionSummary summarizeUserQuery(UserQuery userQuery, List<ChatMessage> messages) {
+        log.info("User Query : {}", userQuery);
+        var tracker = summarizationService.summarizeUserQuery(userQuery, messages);
+        log.info("Summarized Question : {}", tracker);
+        return tracker;
+    }
 
-        log.info("Tool flow completed in {} ms", executionTime);
-
-        return ChatResponse.builder()
-                .success(true)
-                .error(null)
-                .message(finalAnswer)
-                .role("assistant")
-                .usedToolFlow(true)
-                .routeDecision(decision.getReason())
-                .executionTimeMs(executionTime)
-                .workflowState(workflowResult)
+    private ChatOptions getChatOptions() {
+        return OpenAiChatOptions.builder()
+                .toolCallbacks(toolCallbacks)
+                .maxTokens(properties.getLLM().getMaxTokens())
+                .stop(properties.getStopReasons())
                 .build();
     }
 
-    /**
-     * Gets a direct answer from the LLM without using tools.
-     *
-     * @param query the user's query
-     * @param decision the routing decision
-     * @param role the role of the message sender
-     * @return ChatResponse with the LLM's direct answer
-     */
-    private ChatResponse getDirectLLMResponse(String query, RouteDecision decision, String role) {
-        log.info("Getting direct LLM response");
-
-        long startTime = System.currentTimeMillis();
-        String answer = chatClient.prompt()
-                .user(query)
-                .call()
-                .content();
-        long executionTime = System.currentTimeMillis() - startTime;
-
-        log.info("Direct LLM response completed in {} ms", executionTime);
-        log.debug("LLM answer length: {} characters", answer != null ? answer.length() : 0);
-
-        return ChatResponse.builder()
-                .success(true)
-                .error(null)
-                .message(answer)
-                .role("assistant")
-                .usedToolFlow(false)
-                .routeDecision(decision.getReason())
-                .executionTimeMs(executionTime)
-                .workflowState(null)
+    private ResponseChunk getChunk(String data, String finishReason, boolean finished,
+                                   String conversationId, String messageId, KnowledgeBaseResponse knowledgeBaseResponse) {
+        return ResponseChunk.builder()
+                .token(data)
+                .finishReason(finishReason)
+                .done(finished)
+                .conversationId(conversationId)
+                .messageId(messageId)
+                .knowledgeBaseResponse(knowledgeBaseResponse)
                 .build();
     }
 
-    /**
-     * Internal class representing the routing decision with extracted data.
-     */
-    private static class RouteDecision {
-        private final boolean useTool;
-        private final List<Double> numbers;
-        private final String reason;
-
-        public RouteDecision(boolean useTool, List<Double> numbers, String reason) {
-            this.useTool = useTool;
-            this.numbers = numbers;
-            this.reason = reason;
+    private KnowledgeBaseResponse buildAndFetchKnowledgeBaseResponse(UserQuery userQuery,
+                                                                     UserQuestionSummary tracker,
+                                                                     boolean addToolsToFinalCall) {
+        var kbRequest = KnowledgeBaseRequest.builder().input(userQuery.getQuestion()).build();
+        if (tracker.newTopic()) {
+            log.info("Summary question passed along for knowledge retrieval: {}", tracker.summarisedQuestion());
+            kbRequest.setSummary(tracker.summarisedQuestion());
         }
-
-        public boolean shouldUseTool() {
-            return useTool;
+        log.debug("KnowledgeBase Request {}", kbRequest);
+        KnowledgeBaseResponse kbResponse = null;
+        if (!addToolsToFinalCall) {
+            kbResponse = knowledgeBaseService.getContextualPrompt(kbRequest);
+            log.debug("KnowledgeBase Response {}", kbResponse);
         }
+        return kbResponse;
+    }
 
-        public List<Double> getNumbers() {
-            return numbers;
+    private void findFirstAndUpdateConversationTitle(String conversationId, UserQuestionSummary tracker) {
+        if (conversationService.isFirstMessage(conversationId)) {
+            conversationRepository.findById(conversationId).ifPresent(conversation -> {
+                conversation.setConversationTitle(tracker.topic());
+                conversation.setDateUpdated(new Date());
+                conversationRepository.save(conversation);
+            });
         }
+    }
 
-        public String getReason() {
-            return reason;
-        }
+    private Optional<ChatMessage> saveAssistantMessage(String userId, String conversationId, String content) {
+        String messageId = UUID.randomUUID().toString();
+        log.info("Message ID for the assistant message: {}", messageId);
+        var assistantMessage = new ChatMessage(
+                messageId,
+                userId,
+                Date.from(Instant.now()),
+                Date.from(Instant.now()),
+                conversationId,
+                MessageType.ASSISTANT.getValue(),
+                content,
+                0,
+                false
+        );
+        return conversationService.saveMessage(assistantMessage);
     }
 }
