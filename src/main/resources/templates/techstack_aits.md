@@ -1,75 +1,69 @@
-# 🧩 AITs Using [(${component})]
+# 🧩 AITs Matching Criteria: [(${criteriaDescription})]
 
-Below are the AITs that have **[(${component})]** in their tech stack:
+Below are the AITs that match the given tech stack criteria:
 
 ---
 
-[# th:each="ait : ${list}"]
-[# th:if="${ait != null and ait.ait != null}"]
+<th:block th:each="ait : ${details}">
 
-## AIT: [(${ait.ait})]
+## 🎯 AIT: [(${ait.ait})]
 
-[# th:if="${ait.languagesFrameworks != null}"]
-[# th:if="${ait.languagesFrameworks.languages != null and not #lists.isEmpty(ait.languagesFrameworks.languages)}"]
+<th:block th:if="${ait.languagesFrameworks != null}">
 
+<th:block th:if="${ait.languagesFrameworks.languages != null}">
 ### 📝 Languages
-[# th:each="lang : ${ait.languagesFrameworks.languages}"][# th:if="${lang != null and lang.name != null}"]
-- **[(${lang.name})]**[# th:if="${lang.version != null and not #strings.isEmpty(lang.version)}"] ([(${lang.version})])[/]
-[/][/]
+<th:block th:each="lang : ${ait.languagesFrameworks.languages}">
+- **[(${lang.name})]** <th:block th:if="${lang.version != null}">(Version: [(${lang.version})])</th:block>
+</th:block>
 
-[/]
+</th:block>
 
-[# th:if="${ait.languagesFrameworks.frameworks != null and not #lists.isEmpty(ait.languagesFrameworks.frameworks)}"]
-
+<th:block th:if="${ait.languagesFrameworks.frameworks != null}">
 ### 🔧 Frameworks
-[# th:each="fw : ${ait.languagesFrameworks.frameworks}"][# th:if="${fw != null and fw.name != null}"]
-- **[(${fw.name})]**[# th:if="${fw.version != null and not #strings.isEmpty(fw.version)}"] ([(${fw.version})])[/]
-[/][/]
+<th:block th:each="fw : ${ait.languagesFrameworks.frameworks}">
+- **[(${fw.name})]** <th:block th:if="${fw.version != null}">(Version: [(${fw.version})])</th:block>
+</th:block>
 
-[/]
-[/]
+</th:block>
+</th:block>
 
-[# th:if="${ait.infrastructure != null}"]
-[# th:if="${ait.infrastructure.databases != null and not #lists.isEmpty(ait.infrastructure.databases)}"]
+<th:block th:if="${ait.infrastructure != null}">
 
+<th:block th:if="${ait.infrastructure.databases != null}">
 ### 💾 Databases
-[# th:each="db : ${ait.infrastructure.databases}"][# th:if="${db != null and db.name != null}"]
-- **[(${db.name})]**[# th:if="${db.version != null and not #strings.isEmpty(db.version)}"] ([(${db.version})])[/][# th:if="${db.environment != null and not #strings.isEmpty(db.environment)}"] [[(${db.environment})]][/]
-[/][/]
+<th:block th:each="db : ${ait.infrastructure.databases}">
+- **[(${db.name})]** <th:block th:if="${db.version != null}">(Version: [(${db.version})])</th:block> <th:block th:if="${db.environment != null}">- Environment: **[(${db.environment})]**</th:block>
+</th:block>
 
-[/]
+</th:block>
 
-[# th:if="${ait.infrastructure.middlewares != null and not #lists.isEmpty(ait.infrastructure.middlewares)}"]
-
+<th:block th:if="${ait.infrastructure.middlewares != null}">
 ### ⚙️ Middlewares
-[# th:each="mw : ${ait.infrastructure.middlewares}"][# th:if="${mw != null and mw.type != null}"]
-- **[(${mw.type})]**[# th:if="${mw.version != null and not #strings.isEmpty(mw.version)}"] ([(${mw.version})])[/][# th:if="${mw.environment != null and not #strings.isEmpty(mw.environment)}"] [[(${mw.environment})]][/]
-[/][/]
+<th:block th:each="mw : ${ait.infrastructure.middlewares}">
+- **[(${mw.type})]** <th:block th:if="${mw.version != null}">(Version: [(${mw.version})])</th:block> <th:block th:if="${mw.environment != null}">- Environment: **[(${mw.environment})]**</th:block>
+</th:block>
 
-[/]
+</th:block>
 
-[# th:if="${ait.infrastructure.operatingSystems != null and not #lists.isEmpty(ait.infrastructure.operatingSystems)}"]
-
+<th:block th:if="${ait.infrastructure.operatingSystems != null}">
 ### 🖥️ Operating Systems
-[# th:each="os : ${ait.infrastructure.operatingSystems}"][# th:if="${os != null and os.name != null}"]
-- **[(${os.name})]**[# th:if="${os.version != null and not #strings.isEmpty(os.version)}"] ([(${os.version})])[/][# th:if="${os.environment != null and not #strings.isEmpty(os.environment)}"] [[(${os.environment})]][/]
-[/][/]
+<th:block th:each="os : ${ait.infrastructure.operatingSystems}">
+- **[(${os.name})]** <th:block th:if="${os.version != null}">(Version: [(${os.version})])</th:block> <th:block th:if="${os.environment != null}">- Environment: **[(${os.environment})]**</th:block>
+</th:block>
 
-[/]
-[/]
+</th:block>
+</th:block>
 
-[# th:if="${ait.libraries != null and not #lists.isEmpty(ait.libraries)}"]
-
+<th:block th:if="${ait.libraries != null}">
 ### 📚 Libraries
-[# th:each="lib : ${ait.libraries}"][# th:if="${lib != null and lib.name != null}"]
-- [(${lib.name})][# th:if="${lib.version != null and not #strings.isEmpty(lib.version)}"] ([(${lib.version})])[/]
-[/][/]
+<th:block th:each="lib : ${ait.libraries}">
+- **[(${lib.name})]** <th:block th:if="${lib.version != null}">(Version: [(${lib.version})])</th:block>
+</th:block>
 
-[/]
+</th:block>
 
 ---
 
-[/]
-[/]
+</th:block>
 
-**Total AITs Found:** [(${#lists.size(list)})]
+**Total AITs Found:** [(${#lists.size(details)})]
