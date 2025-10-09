@@ -53,40 +53,43 @@ public class AITToolFunctions {
 
             // Convert entities to DTOs using mapper
             List<AITTechStackInfo> details = aitTechStackInfoMapper.fromEntityList(entityList);
-            log.info("Mapped {} AITs to DTOs", details.size());
-
-            // Get comma-separated AIT IDs for logging
-            String aitIds = details.stream()
-                    .map(AITTechStackInfo::getAit)
-                    .collect(Collectors.joining(","));
-            log.info("AIT Ids: {}", aitIds);
-
-            log.info("Rendering {} AITs", details.size());
-            log.info("Using template: techstack_aits.md");
-
-            String techstackAitsTemplate = "techstack_aits.md";
 
             // Build dynamic criteria description from field queries
-            String criteriaDesc = fieldQueries.values().stream()
-                    .collect(Collectors.joining(" and "));
+            String criteriaDesc = String.join(" and ", fieldQueries.values());
 
-            // Pass DTOs directly to template
-            Map<String, Object> contextMap = new HashMap<>();
-            contextMap.put("details", details);
-            contextMap.put("criteriaDescription", criteriaDesc.isEmpty() ? "All Tech Stacks" : criteriaDesc);
-            contextMap.put("searchCriteria", fieldQueries); // Pass search criteria to template for smart filtering
+            // Convert field paths to simple boolean flags
+            Set<String> searchFields = fieldQueries.keySet();
+            boolean hasLanguages = searchFields.stream().anyMatch(f -> f.contains("languages"));
+            boolean hasFrameworks = searchFields.stream().anyMatch(f -> f.contains("frameworks"));
+            boolean hasDatabases = searchFields.stream().anyMatch(f -> f.contains("databases"));
+            boolean hasMiddlewares = searchFields.stream().anyMatch(f -> f.contains("middlewares"));
+            boolean hasOS = searchFields.stream().anyMatch(f -> f.contains("operatingSystems"));
+            boolean hasLibraries = searchFields.stream().anyMatch(f -> f.contains("libraries"));
 
-            log.info("Context map keys: {}", contextMap.keySet());
+            // If no specific search, show all
+            boolean showAll = searchFields.isEmpty();
+
+            log.info("Search criteria - showAll: {}, languages: {}, frameworks: {}, databases: {}, middlewares: {}, OS: {}, libraries: {}",
+                     showAll, hasLanguages, hasFrameworks, hasDatabases, hasMiddlewares, hasOS, hasLibraries);
 
             return templateProcessor.getContent(
                     TemplateRenderingRequest.builder()
-                            .template(techstackAitsTemplate)
-                            .contextMap(contextMap)
+                            .template("techstack_aits.md")
+                            .contextMap(Map.of(
+                                    "details", details,
+                                    "criteriaDescription", criteriaDesc.isEmpty() ? "All Tech Stacks" : criteriaDesc,
+                                    "showAll", showAll,
+                                    "showLanguages", showAll || hasLanguages,
+                                    "showFrameworks", showAll || hasFrameworks,
+                                    "showDatabases", showAll || hasDatabases,
+                                    "showMiddlewares", showAll || hasMiddlewares,
+                                    "showOS", showAll || hasOS,
+                                    "showLibraries", showAll || hasLibraries
+                            ))
                             .build()
             );
         } catch (Exception e) {
             log.error("Error in findAITsByMultipleCriteria", e);
-            log.error("Full stack trace: ", e);
             return "Error occurred while finding AITs: " + e.getMessage();
         }
     }
